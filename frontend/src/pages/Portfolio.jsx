@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
@@ -24,7 +24,6 @@ function makeChartData(symbol, pnl, avgPrice, points = 30) {
   let seed = 0
   for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) >>> 0
   const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0xFFFFFFFF }
-
   const trend = pnl >= 0 ? 1 : -1
   const data = []
   let price = avgPrice * (1 - trend * 0.04)
@@ -42,27 +41,27 @@ function makeChartData(symbol, pnl, avgPrice, points = 30) {
 
 // ─── Health ring ───────────────────────────────────────────────────────────────
 function HealthRing({ score }) {
-  const R = 52, C = 2 * Math.PI * R
+  const R = 40, C = 2 * Math.PI * R
   const pct = Math.max(0, Math.min(100, score))
   const dash = (pct / 100) * C
   const color = pct >= 65 ? '#16A34A' : pct >= 40 ? '#D97706' : '#DC2626'
   const label = pct >= 65 ? 'Healthy' : pct >= 40 ? 'Fair' : 'Weak'
   return (
-    <div className="flex flex-col items-center gap-3">
-      <svg width="130" height="130" viewBox="0 0 130 130">
-        <circle cx="65" cy="65" r={R} fill="none" stroke="#F3F4F6" strokeWidth="10" />
+    <div className="flex flex-col items-center gap-1.5">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle cx="48" cy="48" r={R} fill="none" stroke="#F3F4F6" strokeWidth="8" />
         <circle
-          cx="65" cy="65" r={R} fill="none"
-          stroke={color} strokeWidth="10"
+          cx="48" cy="48" r={R} fill="none"
+          stroke={color} strokeWidth="8"
           strokeDasharray={`${dash} ${C}`}
           strokeDashoffset={C * 0.25}
           strokeLinecap="round"
           style={{ transition: 'stroke-dasharray 0.8s ease' }}
         />
-        <text x="65" y="60" textAnchor="middle" fontSize="22" fontWeight="700" fill="#111827">{pct}</text>
-        <text x="65" y="76" textAnchor="middle" fontSize="11" fill="#9CA3AF">/ 100</text>
+        <text x="48" y="44" textAnchor="middle" fontSize="18" fontWeight="700" fill="#111827">{pct}</text>
+        <text x="48" y="57" textAnchor="middle" fontSize="9" fill="#9CA3AF">/ 100</text>
       </svg>
-      <span className="text-sm font-semibold" style={{ color }}>{label} Portfolio</span>
+      <span className="text-xs font-semibold" style={{ color }}>{label} Portfolio</span>
     </div>
   )
 }
@@ -70,15 +69,9 @@ function HealthRing({ score }) {
 // ─── Rec badge ────────────────────────────────────────────────────────────────
 function RecBadge({ rec }) {
   if (!rec) return null
-  const styles = {
-    Buy:  'bg-green-50 text-green-700',
-    Hold: 'bg-amber-50 text-amber-700',
-    Sell: 'bg-red-50 text-red-700',
-  }
+  const styles = { Buy: 'bg-green-50 text-green-700', Hold: 'bg-amber-50 text-amber-700', Sell: 'bg-red-50 text-red-700' }
   return (
-    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[rec] || styles.Hold}`}>
-      {rec}
-    </span>
+    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[rec] || styles.Hold}`}>{rec}</span>
   )
 }
 
@@ -104,6 +97,17 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
+// ─── Typing indicator ─────────────────────────────────────────────────────────
+function TypingDots() {
+  return (
+    <span className="flex gap-1 items-center py-0.5">
+      {[0, 150, 300].map(d => (
+        <span key={d} className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+      ))}
+    </span>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Portfolio() {
   const navigate = useNavigate()
@@ -112,7 +116,7 @@ export default function Portfolio() {
   const [holdings,  setHoldings]  = useState([])
   const [overview,  setOverview]  = useState(null)
   const [analysis,  setAnalysis]  = useState(null)
-  const [selected,  setSelected]  = useState(null)   // tradingsymbol of selected holding
+  const [selected,  setSelected]  = useState(null)
   const [search,    setSearch]    = useState('')
 
   const [loadingData, setLoadingData] = useState(false)
@@ -121,7 +125,14 @@ export default function Portfolio() {
   const [error,       setError]       = useState(null)
   const [aiError,     setAiError]     = useState(null)
 
-  // ── On mount: check if Kite redirected back with request_token ──────────────
+  // Right panel state
+  const [aiOpen,       setAiOpen]       = useState(true)
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput,    setChatInput]    = useState('')
+  const [chatLoading,  setChatLoading]  = useState(false)
+  const chatEndRef = useRef(null)
+
+  // ── On mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const rt = params.get('request_token')
@@ -133,7 +144,12 @@ export default function Portfolio() {
     }
   }, [])
 
-  // ── Load status + holdings + overview in parallel ───────────────────────────
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages])
+
+  // ── Load status + holdings + overview ───────────────────────────────────────
   async function loadAll() {
     setLoadingData(true)
     setError(null)
@@ -156,7 +172,7 @@ export default function Portfolio() {
     }
   }
 
-  // ── Kite OAuth: open login URL ───────────────────────────────────────────────
+  // ── Kite OAuth ───────────────────────────────────────────────────────────────
   async function handleConnect() {
     setLoadingConn(true)
     setError(null)
@@ -171,7 +187,6 @@ export default function Portfolio() {
     }
   }
 
-  // ── Kite OAuth: exchange request_token ──────────────────────────────────────
   async function handleCallback(requestToken) {
     setLoadingData(true)
     setError(null)
@@ -185,7 +200,6 @@ export default function Portfolio() {
     }
   }
 
-  // ── Disconnect ───────────────────────────────────────────────────────────────
   async function handleDisconnect() {
     try { await fetch('/portfolio/logout', { method: 'DELETE' }) } catch { /* ignore */ }
     setAnalysis(null)
@@ -214,6 +228,56 @@ export default function Portfolio() {
     }
   }
 
+  // ── Portfolio chat ────────────────────────────────────────────────────────────
+  async function sendChat(message) {
+    if (!message.trim() || chatLoading) return
+    setChatMessages(prev => [...prev, { role: 'user', content: message }])
+    setChatInput('')
+    setChatLoading(true)
+    setChatMessages(prev => [...prev, { role: 'assistant', content: '' }])
+    try {
+      const res = await fetch('/portfolio/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, holdings, overview, health_score: healthScore }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || res.status)
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        for (const line of text.split('\n')) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6).trim()
+          if (payload === '[DONE]') break
+          try {
+            const { text: chunk } = JSON.parse(payload)
+            setChatMessages(prev => {
+              const updated = [...prev]
+              const last = { ...updated[updated.length - 1] }
+              last.content += chunk
+              updated[updated.length - 1] = last
+              return updated
+            })
+          } catch { /* malformed chunk, skip */ }
+        }
+      }
+    } catch (e) {
+      setChatMessages(prev => {
+        const updated = [...prev]
+        updated[updated.length - 1] = { ...updated[updated.length - 1], content: 'Sorry, something went wrong. Please try again.' }
+        return updated
+      })
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const healthScore = overview
     ? Math.round(Math.min(100, Math.max(0,
@@ -223,7 +287,6 @@ export default function Portfolio() {
 
   const isLive = status.mode === 'live' && status.connected
 
-  // Filtered + grouped holdings
   const filtered = holdings.filter(h =>
     h.tradingsymbol.toLowerCase().includes(search.toLowerCase())
   )
@@ -239,14 +302,12 @@ export default function Portfolio() {
 
   const selectedHolding = holdings.find(h => h.tradingsymbol === selected)
 
-  // Chart data for selected holding
   const chartData = useMemo(() => {
     if (!selectedHolding) return []
     return makeChartData(selectedHolding.tradingsymbol, selectedHolding.pnl, selectedHolding.average_price, 30)
   }, [selectedHolding])
 
   const chartColor = selectedHolding?.pnl >= 0 ? '#16A34A' : '#DC2626'
-  const chartFill  = selectedHolding?.pnl >= 0 ? 'rgba(22,163,74,0.08)' : 'rgba(220,38,38,0.08)'
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -254,15 +315,13 @@ export default function Portfolio() {
 
       {/* ── Top navbar ─────────────────────────────────────────────────────────── */}
       <nav className="sticky top-0 z-40 bg-white border-b border-gray-100">
-        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-screen-2xl mx-auto px-6 h-14 flex items-center justify-between">
 
-          {/* Logo */}
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 flex-shrink-0">
             <div className="w-7 h-7 rounded-lg bg-[#16A34A] flex items-center justify-center font-bold text-xs text-white">N</div>
             <span className="font-bold text-base text-gray-900 tracking-tight">Nuvest</span>
           </button>
 
-          {/* Nav tabs */}
           <div className="hidden md:flex items-center gap-1">
             {[
               { label: 'Dashboard',    path: '/dashboard' },
@@ -273,9 +332,7 @@ export default function Portfolio() {
                 key={label}
                 onClick={() => navigate(path)}
                 className={`px-3.5 py-1.5 text-sm rounded-lg transition-colors ${
-                  active
-                    ? 'bg-gray-100 text-gray-900 font-medium'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                  active ? 'bg-gray-100 text-gray-900 font-medium' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
                 {label}
@@ -283,7 +340,6 @@ export default function Portfolio() {
             ))}
           </div>
 
-          {/* Right: badge + actions */}
           <div className="flex items-center gap-2.5">
             <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
               isLive ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-600'
@@ -291,19 +347,6 @@ export default function Portfolio() {
               <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-400'}`} />
               {isLive ? `Live · ${status.user_name}` : 'Mock Data'}
             </span>
-
-            <button
-              onClick={runAnalysis}
-              disabled={loadingAI}
-              className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition-colors"
-            >
-              {loadingAI ? <Spinner sm /> : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
-                </svg>
-              )}
-              AI Analysis
-            </button>
 
             {isLive ? (
               <button
@@ -331,27 +374,21 @@ export default function Portfolio() {
         </div>
       </nav>
 
-      {/* ── Error banners ──────────────────────────────────────────────────────── */}
+      {/* ── Error banner ───────────────────────────────────────────────────────── */}
       {error && (
         <div className="bg-red-50 border-b border-red-100 px-6 py-2.5 text-sm text-red-700 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-4">✕</button>
         </div>
       )}
-      {aiError && (
-        <div className="bg-amber-50 border-b border-amber-100 px-6 py-2.5 text-sm text-amber-800 flex items-center justify-between">
-          <span><strong>AI Analysis failed:</strong> {aiError}</span>
-          <button onClick={() => setAiError(null)} className="text-amber-500 hover:text-amber-700 ml-4">✕</button>
-        </div>
-      )}
 
-      {/* ── Two-column layout ──────────────────────────────────────────────────── */}
-      <div className="flex h-[calc(100vh-56px)]">
+      {/* ── 3-column layout ────────────────────────────────────────────────────── */}
+      <div className="flex" style={{ height: 'calc(100vh - 56px)' }}>
 
-        {/* ── Left panel ─────────────────────────────────────────────────────── */}
-        <aside className="w-80 flex-shrink-0 border-r border-gray-100 flex flex-col bg-[#FAFAF9]">
+        {/* ══ LEFT PANEL (280px): Holdings list ══════════════════════════════════ */}
+        <aside className="flex-shrink-0 border-r border-gray-100 flex flex-col bg-[#FAFAF9]" style={{ width: 280 }}>
 
-          {/* Net Worth header */}
+          {/* Net Worth */}
           <div className="px-5 pt-5 pb-4 border-b border-gray-100">
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Net Worth</p>
             {loadingData ? (
@@ -412,24 +449,19 @@ export default function Portfolio() {
                         key={h.tradingsymbol}
                         onClick={() => setSelected(isSelected ? null : h.tradingsymbol)}
                         className={`w-full flex items-center gap-3 px-5 py-3 transition-colors text-left ${
-                          isSelected ? 'bg-white shadow-sm' : 'hover:bg-white/70'
+                          isSelected ? 'bg-white shadow-sm border-r-2 border-r-[#16A34A]' : 'hover:bg-white/70'
                         }`}
                       >
-                        {/* Avatar */}
                         <div
                           className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold"
                           style={{ background: bg, color: fg }}
                         >
                           {h.tradingsymbol.slice(0, 2)}
                         </div>
-
-                        {/* Name + exchange */}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">{h.tradingsymbol}</p>
                           <p className="text-xs text-gray-400">{h.quantity} shares · {h.exchange}</p>
                         </div>
-
-                        {/* P&L */}
                         <div className="text-right flex-shrink-0">
                           <p className={`text-sm font-semibold ${pnlPos ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
                             {sign(h.pnl)}{fmt(h.pnl)}
@@ -447,37 +479,31 @@ export default function Portfolio() {
           </div>
         </aside>
 
-        {/* ── Right panel ────────────────────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto bg-white">
-
+        {/* ══ CENTER PANEL: Stock detail ══════════════════════════════════════════ */}
+        <main className="flex-1 overflow-y-auto bg-white min-w-0">
           {selectedHolding ? (
-            /* ── Stock detail view ─────────────────────────────────────────── */
-            <div className="max-w-3xl mx-auto px-8 py-8">
+            /* ── Stock detail view ───────────────────────────────────────────── */
+            <div className="max-w-2xl mx-auto px-8 py-8">
 
               {/* Header */}
               <div className="flex items-start justify-between mb-6">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    {(() => {
-                      const [bg, fg] = avatarColors(selectedHolding.tradingsymbol)
-                      return (
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: bg, color: fg }}>
-                          {selectedHolding.tradingsymbol.slice(0, 2)}
-                        </div>
-                      )
-                    })()}
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900">{selectedHolding.tradingsymbol}</h2>
-                      <p className="text-sm text-gray-400">{selectedHolding.exchange} · {selectedHolding.product}</p>
-                    </div>
-                    {selectedHolding.recommendation && <RecBadge rec={selectedHolding.recommendation} />}
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const [bg, fg] = avatarColors(selectedHolding.tradingsymbol)
+                    return (
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: bg, color: fg }}>
+                        {selectedHolding.tradingsymbol.slice(0, 2)}
+                      </div>
+                    )
+                  })()}
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">{selectedHolding.tradingsymbol}</h2>
+                    <p className="text-sm text-gray-400">{selectedHolding.exchange} · {selectedHolding.product}</p>
                   </div>
+                  {selectedHolding.recommendation && <RecBadge rec={selectedHolding.recommendation} />}
                 </div>
-                <button
-                  onClick={() => setSelected(null)}
-                  className="text-gray-400 hover:text-gray-600 p-1"
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-50 transition-colors">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M18 6L6 18M6 6l12 12"/>
                   </svg>
                 </button>
@@ -546,99 +572,225 @@ export default function Portfolio() {
             </div>
 
           ) : (
-            /* ── Default view: Health + AI Suggestions ─────────────────────── */
-            <div className="max-w-2xl mx-auto px-8 py-10">
-
-              {/* Portfolio overview numbers */}
+            /* ── Placeholder when nothing selected ───────────────────────────── */
+            <div className="flex flex-col items-center justify-center h-full px-8 text-center">
               {overview && (
-                <div className="grid grid-cols-3 gap-4 mb-10">
-                  {[
-                    { label: 'Invested',     value: fmt(overview.total_invested) },
-                    { label: 'Current Value',value: fmt(overview.current_value) },
-                    { label: 'Total Return', value: `${sign(overview.total_pnl_pct)}${fmtN(overview.total_pnl_pct)}%`, colored: true, val: overview.total_pnl },
-                  ].map(({ label, value, colored, val }) => (
-                    <div key={label} className="rounded-xl bg-gray-50 px-5 py-4">
-                      <p className="text-xs text-gray-400 mb-1.5">{label}</p>
-                      <p className={`text-lg font-bold ${colored ? (val >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]') : 'text-gray-900'}`}>
-                        {value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Health ring */}
-              <div className="flex flex-col items-center mb-10">
-                <HealthRing score={healthScore} />
-                {overview && (
-                  <div className="mt-4 flex items-center gap-6 text-sm text-gray-500">
-                    <span>Top gainer: <strong className="text-[#16A34A]">{overview.top_gainer}</strong></span>
-                    <span>Top loser: <strong className="text-[#DC2626]">{overview.top_loser}</strong></span>
-                  </div>
-                )}
-              </div>
-
-              {/* AI analysis section */}
-              {aiError && (
-                <div className="mb-6 rounded-xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
-                  {aiError}
-                </div>
-              )}
-
-              {analysis ? (
-                <div className="space-y-6">
-                  {/* Portfolio health text */}
-                  {analysis.portfolio_health && (
-                    <div className="rounded-xl bg-gray-50 px-5 py-4">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Portfolio Assessment</p>
-                      <p className="text-sm text-gray-700 leading-relaxed">{analysis.portfolio_health}</p>
-                    </div>
-                  )}
-
-                  {/* Suggestions */}
-                  {analysis.suggestions?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Suggestions</p>
-                      <div className="space-y-2">
-                        {analysis.suggestions.map((s, i) => (
-                          <div key={i} className="flex items-start gap-3 rounded-xl bg-gray-50 px-4 py-3.5">
-                            <span className="w-5 h-5 rounded-full bg-[#16A34A]/10 text-[#16A34A] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-                            <p className="text-sm text-gray-700 leading-relaxed">{s}</p>
-                          </div>
-                        ))}
+                <div className="w-full max-w-md mb-10">
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { label: 'Invested',      value: fmt(overview.total_invested) },
+                      { label: 'Current Value', value: fmt(overview.current_value) },
+                      { label: 'Total Return',  value: `${sign(overview.total_pnl_pct)}${fmtN(overview.total_pnl_pct)}%`, colored: true, val: overview.total_pnl },
+                    ].map(({ label, value, colored, val }) => (
+                      <div key={label} className="rounded-xl bg-gray-50 px-4 py-4">
+                        <p className="text-xs text-gray-400 mb-1.5">{label}</p>
+                        <p className={`text-base font-bold ${colored ? (val >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]') : 'text-gray-900'}`}>{value}</p>
                       </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
-                    </svg>
+                    ))}
                   </div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">No AI analysis yet</p>
-                  <p className="text-xs text-gray-400 mb-5">Run AI analysis to get personalised recommendations</p>
-                  <button
-                    onClick={runAnalysis}
-                    disabled={loadingAI}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D] disabled:opacity-50 text-sm font-medium text-white transition-colors"
-                  >
-                    {loadingAI ? <Spinner white sm /> : null}
-                    {loadingAI ? 'Analysing…' : 'Run AI Analysis'}
-                  </button>
                 </div>
               )}
-
-              {/* Select a holding prompt */}
-              {!loadingData && holdings.length > 0 && (
-                <p className="text-center text-xs text-gray-300 mt-8">
-                  ← Select a holding to see price chart and details
-                </p>
-              )}
+              <div className="flex flex-col items-center text-gray-300 gap-2">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                </svg>
+                <p className="text-sm text-gray-400">Select a holding to view chart &amp; details</p>
+              </div>
             </div>
           )}
         </main>
+
+        {/* ══ RIGHT PANEL (320px): AI Analysis + Chat ═════════════════════════════ */}
+        <aside
+          className="flex-shrink-0 border-l border-gray-100 flex flex-col overflow-hidden bg-[#FAFAF9]"
+          style={{ width: 320 }}
+        >
+
+          {/* ── 1. Portfolio Health ──────────────────────────────────────────── */}
+          <div className="flex-shrink-0 px-5 py-4 border-b border-gray-100">
+            {loadingData ? (
+              <div className="flex flex-col items-center gap-3 py-1">
+                <div className="w-20 h-20 rounded-full bg-gray-100 animate-pulse" />
+                <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+              </div>
+            ) : (
+              <HealthRing score={healthScore} />
+            )}
+            {overview && !loadingData && (
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-xs text-gray-400">
+                  ↑ <strong className="text-[#16A34A] font-semibold">{overview.top_gainer}</strong>
+                </span>
+                <span className="text-xs text-gray-400">
+                  ↓ <strong className="text-[#DC2626] font-semibold">{overview.top_loser}</strong>
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* ── 2. AI Assessment (collapsible) ──────────────────────────────── */}
+          <div className="flex-shrink-0 border-b border-gray-100 flex flex-col" style={{ maxHeight: aiOpen ? 270 : 'none' }}>
+
+            {/* Toggle header */}
+            <button
+              onClick={() => setAiOpen(!aiOpen)}
+              className="flex-shrink-0 flex items-center justify-between px-5 py-3 hover:bg-gray-100/60 transition-colors"
+            >
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Assessment</span>
+              <svg
+                width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                style={{ transform: aiOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
+              >
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+
+            {aiOpen && (
+              <div className="overflow-y-auto px-4 pb-4 flex flex-col gap-2.5">
+
+                {/* Loading */}
+                {loadingAI && (
+                  <div className="flex items-center justify-center gap-2 py-5 text-xs text-gray-400">
+                    <Spinner /> Analysing portfolio…
+                  </div>
+                )}
+
+                {/* Error */}
+                {aiError && !loadingAI && (
+                  <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2.5 text-xs text-red-600 flex items-start justify-between gap-2">
+                    <span>{aiError}</span>
+                    <button onClick={() => setAiError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0">✕</button>
+                  </div>
+                )}
+
+                {/* Analysis content */}
+                {analysis && !loadingAI && (
+                  <>
+                    {analysis.portfolio_health && (
+                      <div className="rounded-lg bg-white border border-gray-100 px-3 py-2.5">
+                        <p className="text-xs text-gray-600 leading-relaxed">{analysis.portfolio_health}</p>
+                      </div>
+                    )}
+                    {analysis.suggestions?.length > 0 && (
+                      <div className="space-y-1.5">
+                        {analysis.suggestions.map((s, i) => (
+                          <div
+                            key={i}
+                            className="flex items-start gap-2 rounded-lg bg-white border border-gray-100 px-3 py-2.5"
+                            style={{ borderLeft: '3px solid #0F766E' }}
+                          >
+                            <span className="text-xs font-bold text-teal-700 flex-shrink-0 mt-px">{i + 1}.</span>
+                            <p className="text-xs text-gray-600 leading-relaxed">{s}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Empty state */}
+                {!analysis && !loadingAI && !aiError && (
+                  <p className="text-xs text-gray-400 text-center py-2">No analysis yet</p>
+                )}
+
+                {/* Run button */}
+                <button
+                  onClick={runAnalysis}
+                  disabled={loadingAI}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#16A34A] hover:bg-[#15803D] disabled:opacity-50 text-xs font-semibold text-white transition-colors mt-0.5"
+                >
+                  {loadingAI ? <><Spinner white sm /> Analysing…</> : 'Run AI Analysis'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ── 3. Portfolio Chat ────────────────────────────────────────────── */}
+          <div className="flex-1 flex flex-col min-h-0">
+
+            {/* Section title */}
+            <div className="flex-shrink-0 px-5 py-2.5 border-b border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Ask about your portfolio</p>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
+              {chatMessages.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-full text-center py-4 gap-2">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                  </svg>
+                  <p className="text-xs text-gray-300">Ask anything about your holdings</p>
+                </div>
+              )}
+              {chatMessages.map((msg, i) => {
+                const isLast = i === chatMessages.length - 1
+                const isEmpty = msg.content === ''
+                return (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-gray-900 text-white rounded-tr-sm'
+                        : 'bg-white border border-gray-100 text-gray-700 rounded-tl-sm shadow-sm'
+                    }`}>
+                      {isEmpty && chatLoading && isLast ? <TypingDots /> : msg.content || '…'}
+                    </div>
+                  </div>
+                )
+              })}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Starter chips — shown only before first message */}
+            {chatMessages.length === 0 && (
+              <div className="flex-shrink-0 px-3 pb-2 flex flex-col gap-1.5">
+                {['Should I rebalance?', "What's my biggest risk?", 'Which stock should I exit?'].map(q => (
+                  <button
+                    key={q}
+                    onClick={() => sendChat(q)}
+                    disabled={chatLoading}
+                    className="text-left text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-500 hover:border-teal-400 hover:text-teal-700 hover:bg-teal-50/40 transition-colors disabled:opacity-40"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Input row */}
+            <div className="flex-shrink-0 p-3 border-t border-gray-100">
+              <div className="flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey && chatInput.trim() && !chatLoading) {
+                      e.preventDefault()
+                      sendChat(chatInput.trim())
+                    }
+                  }}
+                  placeholder="Ask anything…"
+                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 placeholder-gray-300"
+                />
+                <button
+                  onClick={() => chatInput.trim() && !chatLoading && sendChat(chatInput.trim())}
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-[#16A34A] hover:bg-[#15803D] disabled:opacity-40 transition-colors"
+                >
+                  {chatLoading
+                    ? <Spinner white sm />
+                    : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 2L11 13M22 2L15 22l-4-9-9-4z"/>
+                      </svg>
+                    )
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
       </div>
     </div>
   )

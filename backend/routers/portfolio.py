@@ -3,6 +3,7 @@ import json
 import time
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
@@ -312,3 +313,71 @@ Provide your analysis as ONLY valid JSON (no markdown, no explanation outside th
             "suggestions":      analysis.get("suggestions", []),
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /portfolio/chat  — streaming chat with portfolio context
+# ---------------------------------------------------------------------------
+class ChatRequest(BaseModel):
+    message: str
+    holdings: list = []
+    overview: Optional[dict] = None
+    health_score: Optional[int] = None
+
+
+@router.post("/chat")
+def chat(body: ChatRequest):
+    if not GROQ_API_KEY:
+        raise HTTPException(400, "GROQ_API_KEY is not set. Add it to backend/.env.")
+
+    holdings_text = "\n".join([
+        f"  - {h.get('tradingsymbol','?')} ({h.get('exchange','NSE')}): "
+        f"{h.get('quantity', 0)} shares, avg ₹{h.get('average_price', 0):.2f}, "
+        f"current ₹{h.get('last_price', 0):.2f}, P&L ₹{h.get('pnl', 0):.2f}"
+        for h in (body.holdings or [])
+    ]) or "  (no holdings data)"
+
+    ov = body.overview or {}
+    system_prompt = f"""You are an expert Indian equity portfolio analyst for the Nuvest app.
+
+User's current portfolio:
+{holdings_text}
+
+Portfolio summary:
+- Total invested: ₹{ov.get('total_invested', 0):,.0f}
+- Current value:  ₹{ov.get('current_value', 0):,.0f}
+- Total P&L:      ₹{ov.get('total_pnl', 0):,.0f} ({ov.get('total_pnl_pct', 0):.1f}%)
+- Today's change: {ov.get('day_change_pct', 0):.2f}%
+- Health score:   {body.health_score or 0}/100
+- Top gainer:     {ov.get('top_gainer', 'N/A')}
+- Top loser:      {ov.get('top_loser', 'N/A')}
+- Holdings count: {ov.get('holdings_count', 0)}
+
+Answer the user's question about their specific portfolio. Be concise, specific, and actionable. Reference actual symbols and numbers where relevant."""
+
+    def generate():
+        try:
+            client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+            stream = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=400,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": body.message},
+                ],
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    yield f"data: {json.dumps({'text': delta})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'text': f'Error: {e}'})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
