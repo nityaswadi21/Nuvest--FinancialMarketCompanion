@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python data/generate_data.py)",
+      "Bash(python -m ml.model)",
+      "Bash(uvicorn main:app --reload --port 8000)"
+    ]
+  }
+}
