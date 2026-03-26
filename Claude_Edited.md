@@ -276,6 +276,46 @@ In production, labels come from loan repayment outcomes from NBFC partners. For 
 
 ---
 
+## Simplified Input Form (6 user-facing inputs)
+
+The React demo page (`frontend/src/pages/Demo.jsx`) collects 6 plain-language inputs and derives all 11 model features automatically in `deriveFeatures()` before the API call. No persona presets or example buttons exist in the UI — users enter their own real data.
+
+### Input → Feature mapping
+
+| # | Input | Type | Maps to |
+|---|---|---|---|
+| 1 | UPI transactions/month | number (0–60) | `avg_txn_freq` (direct) |
+| 2 | Bill payment on-time % | slider (0–100) | `consistency_score = val/400`, `utility_streak = val/100`, `fail_ratio = 1 - val/100` |
+| 3 | Rent payment regularity | segmented 2-way | `recency_score` (0.5 or 1.0), `txn_freq_trend` (-1 or +2) |
+| 4 | Monthly income (₹) | number | `avg_amount`, `amount_volatility`, `total_volume` (bracket lookup) |
+| 5 | Mobile recharge frequency | segmented 3-way | `recharge_count` (1, 5, or 10) |
+| 6 | Employment type | segmented 3-way | `category_diversity` (2, 5, or 7) |
+
+### Income bracket lookup
+
+| Income range | avg_amount | amount_volatility | total_volume |
+|---|---|---|---|
+| < ₹10,000 | 180 | 120 | 3,500 |
+| ₹10,000–25,000 | 420 | 280 | 9,000 |
+| ₹25,000–50,000 | 750 | 380 | 22,000 |
+| ₹50,000–1,00,000 | 1,400 | 600 | 45,000 |
+| > ₹1,00,000 | 2,800 | 900 | 95,000 |
+
+### Default state on page load
+
+- INPUT 1 (UPI transactions): 10
+- INPUT 2 (bills on-time %): 50
+- INPUT 3 (rent regularity): no option pre-selected
+- INPUT 4 (monthly income): blank
+- INPUT 5 (recharge): no option pre-selected
+- INPUT 6 (employment): no option pre-selected
+
+"Calculate my score" button is disabled until inputs 1, 3, 4 (> 0), 5, and 6 are all filled.
+
+Backend receives all 11 features unchanged via `POST /score` and `POST /optimize`. Derivation is frontend-only.
+
+---
+
 ## Notes for AI coding assistants
 
 - All data generation is synthetic. Do not attempt to fetch or use real UPI transaction data.

@@ -1,7 +1,51 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RiskBadge from '../components/RiskBadge'
+import TrajectoryChart from '../components/TrajectoryChart'
 
 const mockScore = { score: 712, risk_tier: 'Low' }
+
+const PERSONAS = {
+  priya: {
+    label: 'Priya',
+    sub: 'Low risk · ~780',
+    color: 'emerald',
+    features: {
+      avg_txn_freq: 28, txn_freq_trend: 3, consistency_score: 0.18,
+      recency_score: 1.0, category_diversity: 8, avg_amount: 950,
+      amount_volatility: 200, fail_ratio: 0.02, utility_streak: 1.0,
+      total_volume: 45000, recharge_count: 6,
+    },
+  },
+  ravi: {
+    label: 'Ravi',
+    sub: 'Medium risk · ~600',
+    color: 'amber',
+    features: {
+      avg_txn_freq: 12, txn_freq_trend: -1, consistency_score: 0.09,
+      recency_score: 0.83, category_diversity: 4, avg_amount: 420,
+      amount_volatility: 380, fail_ratio: 0.09, utility_streak: 0.67,
+      total_volume: 18000, recharge_count: 3,
+    },
+  },
+  anand: {
+    label: 'Anand',
+    sub: 'High risk · ~420',
+    color: 'red',
+    features: {
+      avg_txn_freq: 5, txn_freq_trend: -3, consistency_score: 0.04,
+      recency_score: 0.5, category_diversity: 2, avg_amount: 180,
+      amount_volatility: 210, fail_ratio: 0.28, utility_streak: 0.17,
+      total_volume: 4000, recharge_count: 1,
+    },
+  },
+}
+
+const COLOR_CLASSES = {
+  emerald: { btn: 'bg-emerald-600/15 border-emerald-500/40 text-emerald-300', active: 'bg-emerald-600/30 border-emerald-400' },
+  amber:   { btn: 'bg-amber-600/15 border-amber-500/40 text-amber-300',       active: 'bg-amber-600/30 border-amber-400' },
+  red:     { btn: 'bg-red-600/15 border-red-500/40 text-red-300',             active: 'bg-red-600/30 border-red-400' },
+}
 
 function PlaceholderCard({ icon, title, subtitle, tag }) {
   return (
@@ -32,6 +76,29 @@ function PlaceholderCard({ icon, title, subtitle, tag }) {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const [activePersona, setActivePersona] = useState(null)
+  const [trajectory, setTrajectory] = useState(null)
+  const [trajLoading, setTrajLoading] = useState(false)
+
+  const loadTrajectory = async (key) => {
+    if (activePersona === key) return
+    setActivePersona(key)
+    setTrajLoading(true)
+    setTrajectory(null)
+    try {
+      const res = await fetch('/trajectory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(PERSONAS[key].features),
+      })
+      const data = await res.json()
+      setTrajectory(data)
+    } catch {
+      // ignore
+    } finally {
+      setTrajLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#FAFAF8] text-[#0A0A0A]">
