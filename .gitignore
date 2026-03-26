@@ -1,0 +1,23 @@
+# Environment / secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+session.json
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+
+# Misc
+.DS_Store
+*.log
