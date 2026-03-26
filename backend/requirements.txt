@@ -5,7 +5,7 @@ shap
 scikit-learn
 pandas
 numpy
-anthropic
+openai
 kiteconnect
 python-dotenv
 requests

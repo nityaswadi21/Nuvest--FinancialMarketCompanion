@@ -6,15 +6,15 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
-import anthropic
+from openai import OpenAI
 
 load_dotenv()
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
-KITE_API_KEY      = os.getenv("KITE_API_KEY", "")
-KITE_API_SECRET   = os.getenv("KITE_API_SECRET", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+KITE_API_KEY  = os.getenv("KITE_API_KEY", "")
+KITE_API_SECRET = os.getenv("KITE_API_SECRET", "")
+GROK_API_KEY  = os.getenv("GROK_API_KEY", "")
 
 # session.json lives in backend/ (parent of routers/)
 SESSION_FILE = Path(__file__).resolve().parent.parent / "session.json"
@@ -228,8 +228,8 @@ class AnalyzeRequest(BaseModel):
 
 @router.post("/analyze")
 def analyze_portfolio(body: AnalyzeRequest = AnalyzeRequest()):
-    if not ANTHROPIC_API_KEY:
-        raise HTTPException(400, "ANTHROPIC_API_KEY is not set. Add it to backend/.env.")
+    if not GROK_API_KEY:
+        raise HTTPException(400, "GROK_API_KEY is not set. Add it to backend/.env.")
 
     resp     = get_holdings(mock=body.mock)
     holdings = resp["holdings"]
@@ -280,24 +280,22 @@ Provide your analysis as ONLY valid JSON (no markdown, no explanation outside th
 }}"""
 
     try:
-        client   = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        client   = OpenAI(api_key=GROK_API_KEY, base_url="https://api.x.ai/v1")
+        response = client.chat.completions.create(
+            model="grok-3-mini",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw = response.content[0].text.strip()
+        raw = response.choices[0].message.content.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
         analysis = json.loads(raw.strip())
     except json.JSONDecodeError as e:
-        raise HTTPException(502, f"Claude returned non-JSON: {e}")
-    except anthropic.APIError as e:
-        raise HTTPException(502, f"Anthropic API error: {e}")
+        raise HTTPException(502, f"Grok returned non-JSON: {e}")
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(502, f"Grok API error: {e}")
 
     rec_map = {r["symbol"]: r for r in analysis.get("stock_recommendations", [])}
     for h in holdings:

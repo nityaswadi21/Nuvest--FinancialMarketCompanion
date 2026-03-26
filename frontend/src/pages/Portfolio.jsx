@@ -1,110 +1,106 @@
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
-const fmt    = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n ?? 0)
-const fmtN   = (n, dp = 2) => (n ?? 0).toFixed(dp)
-const sign   = (n) => (n >= 0 ? '+' : '')
+const fmt  = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n ?? 0)
+const fmtN = (n, dp = 2) => (n ?? 0).toFixed(dp)
+const sign = (n) => (n >= 0 ? '+' : '')
 
-// ─── SVG sparkline (no extra deps) ────────────────────────────────────────────
-function Sparkline({ symbol, pnl }) {
-  const W = 64, H = 24, pts = 12
-  // deterministic pseudo-random per symbol
+// ─── Avatar colours ────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  ['#DBEAFE','#1D4ED8'], ['#DCF5E7','#15803D'], ['#FEE2E2','#DC2626'],
+  ['#FEF3C7','#D97706'], ['#EDE9FE','#6D28D9'], ['#FCE7F3','#BE185D'],
+  ['#CCFBF1','#0F766E'], ['#FFF7ED','#C2410C'],
+]
+function avatarColors(symbol) {
+  let h = 0
+  for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
+
+// ─── Deterministic sparkline data ─────────────────────────────────────────────
+function makeChartData(symbol, pnl, avgPrice, points = 30) {
   let seed = 0
   for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) >>> 0
   const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0xFFFFFFFF }
 
-  const raw = Array.from({ length: pts }, (_, i) => {
-    const base = 50 + (pnl >= 0 ? i * 2.5 : -i * 2) + rand() * 12 - 6
-    return Math.max(5, Math.min(95, base))
-  })
-  const min = Math.min(...raw), max = Math.max(...raw)
-  const norm = raw.map(v => max === min ? 0.5 : (v - min) / (max - min))
-  const coords = norm.map((v, i) => `${(i / (pts - 1)) * W},${H - v * (H - 4) - 2}`)
-  const color = pnl >= 0 ? '#10b981' : '#ef4444'
-  const fill  = pnl >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'
-  const area  = `M${coords[0]} L${coords.join(' L')} L${W},${H} L0,${H} Z`
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
-      <path d={area} fill={fill} strokeWidth="0" />
-      <polyline points={coords.join(' ')} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  )
+  const trend = pnl >= 0 ? 1 : -1
+  const data = []
+  let price = avgPrice * (1 - trend * 0.04)
+  const now = Date.now()
+  for (let i = 0; i < points; i++) {
+    price += trend * (rand() * 3 - 0.8) + (rand() - 0.5) * 2
+    const date = new Date(now - (points - i) * 24 * 60 * 60 * 1000)
+    data.push({
+      date: date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
+      price: Math.max(1, +price.toFixed(2)),
+    })
+  }
+  return data
 }
 
-// ─── Circular health ring ──────────────────────────────────────────────────────
+// ─── Health ring ───────────────────────────────────────────────────────────────
 function HealthRing({ score }) {
-  const R = 44, C = 2 * Math.PI * R
+  const R = 52, C = 2 * Math.PI * R
   const pct = Math.max(0, Math.min(100, score))
   const dash = (pct / 100) * C
-  const color = pct >= 65 ? '#1A6B5A' : pct >= 40 ? '#f59e0b' : '#ef4444'
+  const color = pct >= 65 ? '#16A34A' : pct >= 40 ? '#D97706' : '#DC2626'
   const label = pct >= 65 ? 'Healthy' : pct >= 40 ? 'Fair' : 'Weak'
   return (
-    <div className="flex flex-col items-center gap-2">
-      <svg width="112" height="112" viewBox="0 0 112 112">
-        <circle cx="56" cy="56" r={R} fill="none" stroke="#F0ECE4" strokeWidth="10" />
+    <div className="flex flex-col items-center gap-3">
+      <svg width="130" height="130" viewBox="0 0 130 130">
+        <circle cx="65" cy="65" r={R} fill="none" stroke="#F3F4F6" strokeWidth="10" />
         <circle
-          cx="56" cy="56" r={R} fill="none"
+          cx="65" cy="65" r={R} fill="none"
           stroke={color} strokeWidth="10"
           strokeDasharray={`${dash} ${C}`}
           strokeDashoffset={C * 0.25}
           strokeLinecap="round"
           style={{ transition: 'stroke-dasharray 0.8s ease' }}
         />
-        <text x="56" y="52" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0A0A0A">{pct}</text>
-        <text x="56" y="68" textAnchor="middle" fontSize="10" fill="#A39E98">/ 100</text>
+        <text x="65" y="60" textAnchor="middle" fontSize="22" fontWeight="700" fill="#111827">{pct}</text>
+        <text x="65" y="76" textAnchor="middle" fontSize="11" fill="#9CA3AF">/ 100</text>
       </svg>
-      <span className="text-xs font-semibold" style={{ color }}>{label}</span>
+      <span className="text-sm font-semibold" style={{ color }}>{label} Portfolio</span>
     </div>
   )
 }
 
 // ─── Rec badge ────────────────────────────────────────────────────────────────
 function RecBadge({ rec }) {
-  if (!rec) return <span className="text-[#C4BFB8] text-xs">—</span>
+  if (!rec) return null
   const styles = {
-    Buy:  'bg-emerald-50 border-emerald-200 text-emerald-700',
-    Hold: 'bg-amber-50 border-amber-200 text-amber-700',
-    Sell: 'bg-red-50 border-red-200 text-red-700',
+    Buy:  'bg-green-50 text-green-700',
+    Hold: 'bg-amber-50 text-amber-700',
+    Sell: 'bg-red-50 text-red-700',
   }
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-semibold ${styles[rec] || styles.Hold}`}>
+    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[rec] || styles.Hold}`}>
       {rec}
     </span>
   )
 }
 
-// ─── Nav icons ────────────────────────────────────────────────────────────────
-const DashboardIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-    <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
-  </svg>
-)
-const PortfolioIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-  </svg>
-)
-const ScoreIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-  </svg>
-)
-const SettingsIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/>
-    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-  </svg>
-)
-
 // ─── Spinner ──────────────────────────────────────────────────────────────────
-function Spinner({ white = false }) {
+function Spinner({ white = false, sm = false }) {
+  const sz = sm ? 'h-3.5 w-3.5' : 'h-4 w-4'
   return (
-    <svg className={`animate-spin h-4 w-4 ${white ? 'text-white' : 'text-[#1A6B5A]'}`} viewBox="0 0 24 24" fill="none">
+    <svg className={`animate-spin ${sz} ${white ? 'text-white' : 'text-[#16A34A]'}`} viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
     </svg>
+  )
+}
+
+// ─── Custom chart tooltip ─────────────────────────────────────────────────────
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3 py-2 text-xs">
+      <p className="text-gray-400 mb-0.5">{label}</p>
+      <p className="font-semibold text-gray-900">{fmt(payload[0].value)}</p>
+    </div>
   )
 }
 
@@ -116,7 +112,8 @@ export default function Portfolio() {
   const [holdings,  setHoldings]  = useState([])
   const [overview,  setOverview]  = useState(null)
   const [analysis,  setAnalysis]  = useState(null)
-  const [expanded,  setExpanded]  = useState(null)   // tradingsymbol of expanded row
+  const [selected,  setSelected]  = useState(null)   // tradingsymbol of selected holding
+  const [search,    setSearch]    = useState('')
 
   const [loadingData, setLoadingData] = useState(false)
   const [loadingAI,   setLoadingAI]   = useState(false)
@@ -174,7 +171,7 @@ export default function Portfolio() {
     }
   }
 
-  // ── Kite OAuth: exchange request_token ─────────────────────────────────────
+  // ── Kite OAuth: exchange request_token ──────────────────────────────────────
   async function handleCallback(requestToken) {
     setLoadingData(true)
     setError(null)
@@ -190,9 +187,7 @@ export default function Portfolio() {
 
   // ── Disconnect ───────────────────────────────────────────────────────────────
   async function handleDisconnect() {
-    try {
-      await fetch('/portfolio/logout', { method: 'DELETE' })
-    } catch { /* ignore */ }
+    try { await fetch('/portfolio/logout', { method: 'DELETE' }) } catch { /* ignore */ }
     setAnalysis(null)
     await loadAll()
   }
@@ -219,32 +214,52 @@ export default function Portfolio() {
     }
   }
 
-  // ── Health score from overview ────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────────
   const healthScore = overview
-    ? Math.round(
-        Math.min(100, Math.max(0,
-          50
-          + (overview.total_pnl_pct ?? 0) * 1.5
-          + (overview.day_change_pct ?? 0) * 2
-          + (overview.holdings_count ?? 0) * 2
-        ))
-      )
+    ? Math.round(Math.min(100, Math.max(0,
+        50 + (overview.total_pnl_pct ?? 0) * 1.5 + (overview.day_change_pct ?? 0) * 2 + (overview.holdings_count ?? 0) * 2
+      )))
     : 0
 
   const isLive = status.mode === 'live' && status.connected
 
+  // Filtered + grouped holdings
+  const filtered = holdings.filter(h =>
+    h.tradingsymbol.toLowerCase().includes(search.toLowerCase())
+  )
+  const grouped = useMemo(() => {
+    const map = {}
+    for (const h of filtered) {
+      const ex = h.exchange || 'NSE'
+      if (!map[ex]) map[ex] = []
+      map[ex].push(h)
+    }
+    return map
+  }, [filtered])
+
+  const selectedHolding = holdings.find(h => h.tradingsymbol === selected)
+
+  // Chart data for selected holding
+  const chartData = useMemo(() => {
+    if (!selectedHolding) return []
+    return makeChartData(selectedHolding.tradingsymbol, selectedHolding.pnl, selectedHolding.average_price, 30)
+  }, [selectedHolding])
+
+  const chartColor = selectedHolding?.pnl >= 0 ? '#16A34A' : '#DC2626'
+  const chartFill  = selectedHolding?.pnl >= 0 ? 'rgba(22,163,74,0.08)' : 'rgba(220,38,38,0.08)'
+
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#FAFAF8] text-[#0A0A0A]">
+    <div className="min-h-screen bg-white text-gray-900" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
 
       {/* ── Top navbar ─────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-40 bg-[#FAFAF8]/90 backdrop-blur-md border-b border-[#E8E4DC]">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <nav className="sticky top-0 z-40 bg-white border-b border-gray-100">
+        <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center justify-between">
 
           {/* Logo */}
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="w-7 h-7 rounded-lg bg-[#1A6B5A] flex items-center justify-center font-bold text-xs text-white">N</div>
-            <span className="font-serif font-semibold text-lg text-[#0A0A0A]">Nuvest</span>
+            <div className="w-7 h-7 rounded-lg bg-[#16A34A] flex items-center justify-center font-bold text-xs text-white">N</div>
+            <span className="font-bold text-base text-gray-900 tracking-tight">Nuvest</span>
           </button>
 
           {/* Nav tabs */}
@@ -257,10 +272,10 @@ export default function Portfolio() {
               <button
                 key={label}
                 onClick={() => navigate(path)}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                className={`px-3.5 py-1.5 text-sm rounded-lg transition-colors ${
                   active
-                    ? 'bg-[#F0ECE4] text-[#0A0A0A] font-medium'
-                    : 'text-[#6B6560] hover:text-[#0A0A0A] hover:bg-[#F0ECE4]'
+                    ? 'bg-gray-100 text-gray-900 font-medium'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
                 {label}
@@ -269,336 +284,362 @@ export default function Portfolio() {
           </div>
 
           {/* Right: badge + actions */}
-          <div className="flex items-center gap-3">
-            <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-              isLive
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                : 'bg-amber-50 border-amber-200 text-amber-700'
+          <div className="flex items-center gap-2.5">
+            <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+              isLive ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-600'
             }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-400'}`} />
               {isLive ? `Live · ${status.user_name}` : 'Mock Data'}
             </span>
+
+            <button
+              onClick={runAnalysis}
+              disabled={loadingAI}
+              className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition-colors"
+            >
+              {loadingAI ? <Spinner sm /> : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                </svg>
+              )}
+              AI Analysis
+            </button>
 
             {isLive ? (
               <button
                 onClick={handleDisconnect}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-[#E8E4DC] text-sm font-medium text-[#6B6560] hover:border-red-200 hover:text-red-600 transition-colors shadow-sm"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white border border-gray-200 text-sm font-medium text-gray-600 hover:border-red-200 hover:text-red-600 transition-colors"
               >
-                Disconnect Zerodha
+                Disconnect
               </button>
             ) : (
               <button
                 onClick={handleConnect}
                 disabled={loadingConn}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#16A34A] hover:bg-[#15803D] disabled:opacity-50 text-sm font-medium text-white transition-colors"
               >
-                {loadingConn ? <Spinner white /> : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {loadingConn ? <Spinner white sm /> : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
                     <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                   </svg>
                 )}
-                {loadingConn ? 'Connecting…' : 'Connect Zerodha'}
+                Connect Zerodha
               </button>
             )}
-
-            <button
-              onClick={runAnalysis}
-              disabled={loadingAI || loadingData}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0A0A0A] hover:bg-[#1f1f1f] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
-            >
-              {loadingAI ? <Spinner white /> : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-                </svg>
-              )}
-              {loadingAI ? 'Analysing…' : 'Run AI Analysis'}
-            </button>
           </div>
         </div>
       </nav>
 
-      {/* ── Main content ───────────────────────────────────────────────────────── */}
-      <main className="min-h-screen">
-        <div className="max-w-6xl mx-auto px-6 py-8">
+      {/* ── Error banners ──────────────────────────────────────────────────────── */}
+      {error && (
+        <div className="bg-red-50 border-b border-red-100 px-6 py-2.5 text-sm text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-4">✕</button>
+        </div>
+      )}
+      {aiError && (
+        <div className="bg-amber-50 border-b border-amber-100 px-6 py-2.5 text-sm text-amber-800 flex items-center justify-between">
+          <span><strong>AI Analysis failed:</strong> {aiError}</span>
+          <button onClick={() => setAiError(null)} className="text-amber-500 hover:text-amber-700 ml-4">✕</button>
+        </div>
+      )}
 
-          {/* ── Connect banner ──────────────────────────────────────────────── */}
-          {!isLive && (
-            <div className="mb-6 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-5 py-3.5">
-              <div className="flex items-center gap-3">
-                <svg width="18" height="18" className="text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <span className="text-sm text-amber-800">
-                  Showing mock data — connect your Zerodha account to view real portfolio.
-                </span>
-              </div>
-              <button onClick={handleConnect} className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline-offset-2 hover:underline transition-colors">
-                Connect now →
-              </button>
+      {/* ── Two-column layout ──────────────────────────────────────────────────── */}
+      <div className="flex h-[calc(100vh-56px)]">
+
+        {/* ── Left panel ─────────────────────────────────────────────────────── */}
+        <aside className="w-80 flex-shrink-0 border-r border-gray-100 flex flex-col bg-[#FAFAF9]">
+
+          {/* Net Worth header */}
+          <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Net Worth</p>
+            {loadingData ? (
+              <div className="h-8 w-36 bg-gray-100 rounded animate-pulse" />
+            ) : (
+              <p className="text-2xl font-bold text-gray-900 tracking-tight">{fmt(overview?.current_value)}</p>
+            )}
+            {overview && (
+              <p className={`text-sm font-medium mt-0.5 ${overview.total_pnl >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
+                {sign(overview.total_pnl)}{fmt(overview.total_pnl)} ({sign(overview.total_pnl_pct)}{fmtN(overview.total_pnl_pct)}%)
+              </p>
+            )}
+          </div>
+
+          {/* Search */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+              </svg>
+              <input
+                type="text"
+                placeholder="Search holdings…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#16A34A]/20 focus:border-[#16A34A]"
+              />
             </div>
-          )}
+          </div>
 
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
-          )}
-
-          {/* ── Overview cards ──────────────────────────────────────────────── */}
-          {overview && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {/* Current value — feature card */}
-              <div className="lg:col-span-1 rounded-2xl p-5 border border-[#1A6B5A]/20 shadow-sm" style={{ background: 'linear-gradient(135deg,rgba(26,107,90,0.06),rgba(26,107,90,0.02))' }}>
-                <p className="text-xs font-medium text-[#1A6B5A] mb-2 uppercase tracking-wide">Current Value</p>
-                <p className="text-2xl font-bold text-[#0A0A0A] leading-none">{fmt(overview.current_value)}</p>
-                <p className="text-xs text-[#A39E98] mt-1.5">Invested {fmt(overview.total_invested)}</p>
+          {/* Holdings list */}
+          <div className="flex-1 overflow-y-auto">
+            {loadingData ? (
+              <div className="p-4 space-y-3">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 animate-pulse">
+                    <div className="w-9 h-9 rounded-full bg-gray-200 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="h-3.5 w-24 bg-gray-200 rounded mb-1.5" />
+                      <div className="h-3 w-16 bg-gray-100 rounded" />
+                    </div>
+                    <div className="h-3.5 w-14 bg-gray-200 rounded" />
+                  </div>
+                ))}
               </div>
+            ) : (
+              Object.entries(grouped).map(([exchange, items]) => (
+                <div key={exchange}>
+                  <div className="px-5 pt-4 pb-1.5">
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">{exchange}</span>
+                  </div>
+                  {items.map(h => {
+                    const [bg, fg] = avatarColors(h.tradingsymbol)
+                    const isSelected = selected === h.tradingsymbol
+                    const pnlPos = h.pnl >= 0
+                    return (
+                      <button
+                        key={h.tradingsymbol}
+                        onClick={() => setSelected(isSelected ? null : h.tradingsymbol)}
+                        className={`w-full flex items-center gap-3 px-5 py-3 transition-colors text-left ${
+                          isSelected ? 'bg-white shadow-sm' : 'hover:bg-white/70'
+                        }`}
+                      >
+                        {/* Avatar */}
+                        <div
+                          className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold"
+                          style={{ background: bg, color: fg }}
+                        >
+                          {h.tradingsymbol.slice(0, 2)}
+                        </div>
 
-              {/* Total P&L */}
-              <div className="rounded-2xl p-5 bg-white border border-[#E8E4DC] shadow-sm">
-                <p className="text-xs font-medium text-[#A39E98] mb-2 uppercase tracking-wide">Total P&L</p>
-                <p className={`text-2xl font-bold leading-none ${overview.total_pnl >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {sign(overview.total_pnl)}{fmt(overview.total_pnl)}
-                </p>
-                <p className={`text-xs mt-1.5 ${overview.total_pnl >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {sign(overview.total_pnl_pct)}{fmtN(overview.total_pnl_pct)}% return
-                </p>
-              </div>
+                        {/* Name + exchange */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{h.tradingsymbol}</p>
+                          <p className="text-xs text-gray-400">{h.quantity} shares · {h.exchange}</p>
+                        </div>
 
-              {/* Today's change */}
-              <div className="rounded-2xl p-5 bg-white border border-[#E8E4DC] shadow-sm">
-                <p className="text-xs font-medium text-[#A39E98] mb-2 uppercase tracking-wide">Today's Change</p>
-                <p className={`text-2xl font-bold leading-none ${overview.day_change >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {sign(overview.day_change)}{fmt(overview.day_change)}
-                </p>
-                <p className={`text-xs mt-1.5 ${overview.day_change >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {sign(overview.day_change_pct)}{fmtN(overview.day_change_pct)}% today
-                </p>
-              </div>
-
-              {/* Holdings count */}
-              <div className="rounded-2xl p-5 bg-white border border-[#E8E4DC] shadow-sm">
-                <p className="text-xs font-medium text-[#A39E98] mb-2 uppercase tracking-wide">Holdings</p>
-                <p className="text-2xl font-bold text-[#0A0A0A] leading-none">{overview.holdings_count}</p>
-                <div className="flex gap-3 mt-1.5">
-                  {overview.top_gainer && <p className="text-xs text-emerald-600">↑ {overview.top_gainer}</p>}
-                  {overview.top_loser  && <p className="text-xs text-red-500">↓ {overview.top_loser}</p>}
+                        {/* P&L */}
+                        <div className="text-right flex-shrink-0">
+                          <p className={`text-sm font-semibold ${pnlPos ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
+                            {sign(h.pnl)}{fmt(h.pnl)}
+                          </p>
+                          <p className={`text-xs ${pnlPos ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
+                            {sign(h.day_change_percentage)}{fmtN(h.day_change_percentage)}%
+                          </p>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
-              </div>
-            </div>
-          )}
+              ))
+            )}
+          </div>
+        </aside>
 
-          {/* ── Holdings + Right panel ─────────────────────────────────────── */}
-          <div className="grid xl:grid-cols-3 gap-6">
+        {/* ── Right panel ────────────────────────────────────────────────────── */}
+        <main className="flex-1 overflow-y-auto bg-white">
 
-            {/* Holdings table */}
-            <div className="xl:col-span-2 bg-white border border-[#E8E4DC] rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-[#E8E4DC] flex items-center justify-between">
-                <h2 className="font-semibold text-[#0A0A0A]">Holdings</h2>
-                {loadingData && <Spinner />}
-              </div>
+          {selectedHolding ? (
+            /* ── Stock detail view ─────────────────────────────────────────── */
+            <div className="max-w-3xl mx-auto px-8 py-8">
 
-              {holdings.length === 0 && !loadingData ? (
-                <div className="p-12 text-center text-[#A39E98] text-sm">
-                  No holdings data available.
+              {/* Header */}
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                    {(() => {
+                      const [bg, fg] = avatarColors(selectedHolding.tradingsymbol)
+                      return (
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold" style={{ background: bg, color: fg }}>
+                          {selectedHolding.tradingsymbol.slice(0, 2)}
+                        </div>
+                      )
+                    })()}
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">{selectedHolding.tradingsymbol}</h2>
+                      <p className="text-sm text-gray-400">{selectedHolding.exchange} · {selectedHolding.product}</p>
+                    </div>
+                    {selectedHolding.recommendation && <RecBadge rec={selectedHolding.recommendation} />}
+                  </div>
                 </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[#F0ECE4] text-[#A39E98] text-xs">
-                        <th className="px-5 py-3 text-left font-medium">Symbol</th>
-                        <th className="px-4 py-3 text-right font-medium">Qty</th>
-                        <th className="px-4 py-3 text-right font-medium hidden md:table-cell">Avg</th>
-                        <th className="px-4 py-3 text-right font-medium">LTP</th>
-                        <th className="px-4 py-3 text-right font-medium">P&L</th>
-                        <th className="px-4 py-3 text-center font-medium hidden sm:table-cell">7d</th>
-                        <th className="px-4 py-3 text-center font-medium">AI</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {holdings.map((h, i) => {
-                        const pnlPos  = h.pnl >= 0
-                        const dayPos  = h.day_change_percentage >= 0
-                        const invested = h.quantity * h.average_price
-                        const pnlPct  = invested ? (h.pnl / invested * 100) : 0
-                        const isOpen  = expanded === h.tradingsymbol
-                        return (
-                          <Fragment key={h.tradingsymbol}>
-                            <tr
-                              onClick={() => setExpanded(isOpen ? null : h.tradingsymbol)}
-                              className={`border-b border-[#F5F2EE] cursor-pointer transition-colors ${
-                                i % 2 === 0 ? 'bg-white hover:bg-[#FAFAF8]' : 'bg-[#FDFCFA] hover:bg-[#F5F2EE]'
-                              } ${isOpen ? 'bg-[#F5F2EE]' : ''}`}
-                            >
-                              {/* Symbol */}
-                              <td className="px-5 py-3.5">
-                                <div className="font-semibold text-[#0A0A0A]">{h.tradingsymbol}</div>
-                                <div className="text-xs text-[#C4BFB8]">{h.exchange}</div>
-                              </td>
-                              {/* Qty */}
-                              <td className="px-4 py-3.5 text-right text-[#6B6560]">{h.quantity}</td>
-                              {/* Avg */}
-                              <td className="px-4 py-3.5 text-right text-[#6B6560] hidden md:table-cell">
-                                ₹{h.average_price.toLocaleString('en-IN')}
-                              </td>
-                              {/* LTP */}
-                              <td className="px-4 py-3.5 text-right font-medium text-[#0A0A0A]">
-                                ₹{h.last_price.toLocaleString('en-IN')}
-                                <div className={`text-xs font-normal ${dayPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                                  {sign(h.day_change_percentage)}{fmtN(h.day_change_percentage)}%
-                                </div>
-                              </td>
-                              {/* P&L */}
-                              <td className="px-4 py-3.5 text-right">
-                                <div className={`font-medium ${pnlPos ? 'text-emerald-700' : 'text-red-600'}`}>
-                                  {sign(h.pnl)}{fmt(h.pnl)}
-                                </div>
-                                <div className={`text-xs ${pnlPos ? 'text-emerald-600' : 'text-red-500'}`}>
-                                  {sign(pnlPct)}{fmtN(pnlPct)}%
-                                </div>
-                              </td>
-                              {/* Sparkline */}
-                              <td className="px-4 py-3.5 hidden sm:table-cell">
-                                <div className="flex justify-center">
-                                  <Sparkline symbol={h.tradingsymbol} pnl={h.pnl} />
-                                </div>
-                              </td>
-                              {/* AI rec */}
-                              <td className="px-4 py-3.5 text-center">
-                                <RecBadge rec={h.recommendation} />
-                              </td>
-                            </tr>
+                <button
+                  onClick={() => setSelected(null)}
+                  className="text-gray-400 hover:text-gray-600 p-1"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              </div>
 
-                            {/* Expanded AI reasoning row */}
-                            {isOpen && (
-                              <tr className="border-b border-[#F0ECE4] bg-[#F5F0E8]/40">
-                                <td colSpan={7} className="px-5 py-4">
-                                  <div className="flex items-start gap-3">
-                                    <div className="w-6 h-6 rounded-lg bg-[#1A6B5A]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                      <svg width="12" height="12" className="text-[#1A6B5A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-                                      </svg>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs font-semibold text-[#1A6B5A] mb-1">AI Reasoning — {h.tradingsymbol}</p>
-                                      {h.rec_reason ? (
-                                        <p className="text-xs text-[#6B6560] leading-relaxed">{h.rec_reason}</p>
-                                      ) : (
-                                        <p className="text-xs text-[#A39E98] italic">Run AI Analysis to see reasoning.</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </Fragment>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+              {/* Price + change */}
+              <div className="mb-6">
+                <p className="text-4xl font-bold text-gray-900 tracking-tight">{fmt(selectedHolding.last_price)}</p>
+                <p className={`text-base font-medium mt-1 ${selectedHolding.day_change >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
+                  {sign(selectedHolding.day_change)}{fmt(selectedHolding.day_change)} ({sign(selectedHolding.day_change_percentage)}{fmtN(selectedHolding.day_change_percentage)}%) today
+                </p>
+              </div>
+
+              {/* Chart */}
+              <div className="mb-8" style={{ height: 180 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.12} />
+                        <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} interval={6} />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="price"
+                      stroke={chartColor}
+                      strokeWidth={2}
+                      fill="url(#chartGrad)"
+                      dot={false}
+                      activeDot={{ r: 4, fill: chartColor, strokeWidth: 0 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Stats grid */}
+              <div className="grid grid-cols-3 gap-0 mb-8 rounded-xl border border-gray-100 overflow-hidden">
+                {[
+                  { label: 'Avg Buy Price', value: fmt(selectedHolding.average_price) },
+                  { label: 'Current Price', value: fmt(selectedHolding.last_price) },
+                  { label: 'Quantity',       value: selectedHolding.quantity },
+                  { label: 'Invested',       value: fmt(selectedHolding.quantity * selectedHolding.average_price) },
+                  { label: 'Current Value',  value: fmt(selectedHolding.quantity * selectedHolding.last_price) },
+                  { label: 'Total P&L',      value: fmt(selectedHolding.pnl), colored: true, val: selectedHolding.pnl },
+                ].map(({ label, value, colored, val }, i) => (
+                  <div key={label} className={`px-5 py-4 bg-white ${i < 3 ? 'border-b border-gray-100' : ''} ${i % 3 !== 2 ? 'border-r border-gray-100' : ''}`}>
+                    <p className="text-xs text-gray-400 mb-1">{label}</p>
+                    <p className={`text-sm font-semibold ${colored ? (val >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]') : 'text-gray-900'}`}>
+                      {colored && sign(val)}{value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* AI reason */}
+              {selectedHolding.rec_reason && (
+                <div className="rounded-xl bg-gray-50 px-5 py-4">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">AI Insight</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{selectedHolding.rec_reason}</p>
                 </div>
               )}
             </div>
 
-            {/* ── Right panel ─────────────────────────────────────────────── */}
-            <div className="flex flex-col gap-4">
+          ) : (
+            /* ── Default view: Health + AI Suggestions ─────────────────────── */
+            <div className="max-w-2xl mx-auto px-8 py-10">
+
+              {/* Portfolio overview numbers */}
+              {overview && (
+                <div className="grid grid-cols-3 gap-4 mb-10">
+                  {[
+                    { label: 'Invested',     value: fmt(overview.total_invested) },
+                    { label: 'Current Value',value: fmt(overview.current_value) },
+                    { label: 'Total Return', value: `${sign(overview.total_pnl_pct)}${fmtN(overview.total_pnl_pct)}%`, colored: true, val: overview.total_pnl },
+                  ].map(({ label, value, colored, val }) => (
+                    <div key={label} className="rounded-xl bg-gray-50 px-5 py-4">
+                      <p className="text-xs text-gray-400 mb-1.5">{label}</p>
+                      <p className={`text-lg font-bold ${colored ? (val >= 0 ? 'text-[#16A34A]' : 'text-[#DC2626]') : 'text-gray-900'}`}>
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Health ring */}
-              <div className="bg-white border border-[#E8E4DC] rounded-2xl p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-5">
-                  <div className="w-7 h-7 rounded-lg bg-[#1A6B5A]/10 flex items-center justify-center">
-                    <svg width="14" height="14" className="text-[#1A6B5A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-                    </svg>
-                  </div>
-                  <h3 className="font-semibold text-sm text-[#0A0A0A]">Portfolio Health</h3>
-                </div>
-
-                <div className="flex items-center gap-6">
-                  <HealthRing score={healthScore} />
-                  <div className="flex-1 space-y-2">
-                    {overview && [
-                      { label: 'Return',      val: `${sign(overview.total_pnl_pct)}${fmtN(overview.total_pnl_pct)}%`,  pos: overview.total_pnl_pct >= 0 },
-                      { label: 'Today',       val: `${sign(overview.day_change_pct)}${fmtN(overview.day_change_pct)}%`, pos: overview.day_change_pct >= 0 },
-                      { label: 'Diversified', val: `${overview.holdings_count} stocks`, pos: (overview.holdings_count ?? 0) >= 5 },
-                    ].map(({ label, val, pos }) => (
-                      <div key={label} className="flex items-center justify-between">
-                        <span className="text-xs text-[#A39E98]">{label}</span>
-                        <span className={`text-xs font-semibold ${pos ? 'text-emerald-700' : 'text-red-600'}`}>{val}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {analysis?.portfolio_health && (
-                  <p className="mt-4 text-xs text-[#6B6560] leading-relaxed border-t border-[#F0ECE4] pt-4">
-                    {analysis.portfolio_health}
-                  </p>
-                )}
-              </div>
-
-              {/* AI Suggestions */}
-              <div className="bg-white border border-[#E8E4DC] rounded-2xl p-6 shadow-sm">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 text-sm">💡</div>
-                  <h3 className="font-semibold text-sm text-[#0A0A0A]">AI Suggestions</h3>
-                </div>
-
-                {aiError && (
-                  <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs">
-                    {aiError}
-                  </div>
-                )}
-
-                {analysis?.suggestions?.length ? (
-                  <ol className="space-y-3">
-                    {analysis.suggestions.map((s, i) => (
-                      <li key={i} className="flex gap-2.5 text-xs text-[#6B6560]">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#1A6B5A]/10 border border-[#1A6B5A]/20 flex items-center justify-center text-[#1A6B5A] text-xs font-bold">
-                          {i + 1}
-                        </span>
-                        <span className="leading-relaxed">{s}</span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-xs text-[#A39E98] leading-relaxed mb-3">
-                      Get AI-powered rebalancing tips, profit-booking signals, and risk alerts.
-                    </p>
-                    <button
-                      onClick={runAnalysis}
-                      disabled={loadingAI || loadingData}
-                      className="w-full py-2.5 rounded-xl bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors flex items-center justify-center gap-2"
-                    >
-                      {loadingAI ? <><Spinner white /><span>Analysing…</span></> : 'Run AI Analysis'}
-                    </button>
+              <div className="flex flex-col items-center mb-10">
+                <HealthRing score={healthScore} />
+                {overview && (
+                  <div className="mt-4 flex items-center gap-6 text-sm text-gray-500">
+                    <span>Top gainer: <strong className="text-[#16A34A]">{overview.top_gainer}</strong></span>
+                    <span>Top loser: <strong className="text-[#DC2626]">{overview.top_loser}</strong></span>
                   </div>
                 )}
               </div>
 
-              {/* Setup card */}
-              {!isLive && (
-                <div className="bg-white border border-dashed border-[#D5D0C8] rounded-2xl p-5 shadow-sm">
-                  <p className="text-xs font-semibold text-[#0A0A0A] mb-2">Live Broker Setup</p>
-                  <p className="text-xs text-[#A39E98] leading-relaxed mb-3">
-                    Set <code className="bg-[#F5F0E8] px-1 rounded text-[#6B6560]">KITE_API_KEY</code> and{' '}
-                    <code className="bg-[#F5F0E8] px-1 rounded text-[#6B6560]">KITE_API_SECRET</code> in{' '}
-                    <code className="bg-[#F5F0E8] px-1 rounded text-[#6B6560]">backend/.env</code>, then connect Zerodha above.
-                  </p>
-                  <p className="text-xs text-[#A39E98]">
-                    Redirect URL:{' '}
-                    <code className="bg-[#F5F0E8] px-1 rounded text-[#6B6560] select-all">
-                      http://localhost:5173/portfolio
-                    </code>
-                  </p>
+              {/* AI analysis section */}
+              {aiError && (
+                <div className="mb-6 rounded-xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700">
+                  {aiError}
                 </div>
               )}
-            </div>
 
-          </div>
-        </div>
-      </main>
+              {analysis ? (
+                <div className="space-y-6">
+                  {/* Portfolio health text */}
+                  {analysis.portfolio_health && (
+                    <div className="rounded-xl bg-gray-50 px-5 py-4">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Portfolio Assessment</p>
+                      <p className="text-sm text-gray-700 leading-relaxed">{analysis.portfolio_health}</p>
+                    </div>
+                  )}
+
+                  {/* Suggestions */}
+                  {analysis.suggestions?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Suggestions</p>
+                      <div className="space-y-2">
+                        {analysis.suggestions.map((s, i) => (
+                          <div key={i} className="flex items-start gap-3 rounded-xl bg-gray-50 px-4 py-3.5">
+                            <span className="w-5 h-5 rounded-full bg-[#16A34A]/10 text-[#16A34A] text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                            <p className="text-sm text-gray-700 leading-relaxed">{s}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                    </svg>
+                  </div>
+                  <p className="text-sm font-medium text-gray-600 mb-1">No AI analysis yet</p>
+                  <p className="text-xs text-gray-400 mb-5">Run AI analysis to get personalised recommendations</p>
+                  <button
+                    onClick={runAnalysis}
+                    disabled={loadingAI}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D] disabled:opacity-50 text-sm font-medium text-white transition-colors"
+                  >
+                    {loadingAI ? <Spinner white sm /> : null}
+                    {loadingAI ? 'Analysing…' : 'Run AI Analysis'}
+                  </button>
+                </div>
+              )}
+
+              {/* Select a holding prompt */}
+              {!loadingData && holdings.length > 0 && (
+                <p className="text-center text-xs text-gray-300 mt-8">
+                  ← Select a holding to see price chart and details
+                </p>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   )
 }
