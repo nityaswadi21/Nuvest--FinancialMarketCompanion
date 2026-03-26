@@ -1,7 +1,51 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import RiskBadge from '../components/RiskBadge'
+import TrajectoryChart from '../components/TrajectoryChart'
 
 const mockScore = { score: 712, risk_tier: 'Low' }
+
+const PERSONAS = {
+  priya: {
+    label: 'Priya',
+    sub: 'Low risk · ~780',
+    color: 'emerald',
+    features: {
+      avg_txn_freq: 28, txn_freq_trend: 3, consistency_score: 0.18,
+      recency_score: 1.0, category_diversity: 8, avg_amount: 950,
+      amount_volatility: 200, fail_ratio: 0.02, utility_streak: 1.0,
+      total_volume: 45000, recharge_count: 6,
+    },
+  },
+  ravi: {
+    label: 'Ravi',
+    sub: 'Medium risk · ~600',
+    color: 'amber',
+    features: {
+      avg_txn_freq: 12, txn_freq_trend: -1, consistency_score: 0.09,
+      recency_score: 0.83, category_diversity: 4, avg_amount: 420,
+      amount_volatility: 380, fail_ratio: 0.09, utility_streak: 0.67,
+      total_volume: 18000, recharge_count: 3,
+    },
+  },
+  anand: {
+    label: 'Anand',
+    sub: 'High risk · ~420',
+    color: 'red',
+    features: {
+      avg_txn_freq: 5, txn_freq_trend: -3, consistency_score: 0.04,
+      recency_score: 0.5, category_diversity: 2, avg_amount: 180,
+      amount_volatility: 210, fail_ratio: 0.28, utility_streak: 0.17,
+      total_volume: 4000, recharge_count: 1,
+    },
+  },
+}
+
+const COLOR_CLASSES = {
+  emerald: { btn: 'bg-emerald-600/15 border-emerald-500/40 text-emerald-300', active: 'bg-emerald-600/30 border-emerald-400' },
+  amber:   { btn: 'bg-amber-600/15 border-amber-500/40 text-amber-300',       active: 'bg-amber-600/30 border-amber-400' },
+  red:     { btn: 'bg-red-600/15 border-red-500/40 text-red-300',             active: 'bg-red-600/30 border-red-400' },
+}
 
 function PlaceholderCard({ icon, title, subtitle, tag }) {
   return (
@@ -32,6 +76,29 @@ function PlaceholderCard({ icon, title, subtitle, tag }) {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const [activePersona, setActivePersona] = useState(null)
+  const [trajectory, setTrajectory] = useState(null)
+  const [trajLoading, setTrajLoading] = useState(false)
+
+  const loadTrajectory = async (key) => {
+    if (activePersona === key) return
+    setActivePersona(key)
+    setTrajLoading(true)
+    setTrajectory(null)
+    try {
+      const res = await fetch('/trajectory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(PERSONAS[key].features),
+      })
+      const data = await res.json()
+      setTrajectory(data)
+    } catch {
+      // ignore
+    } finally {
+      setTrajLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -109,6 +176,53 @@ export default function Dashboard() {
               subtitle="Connect your portfolio to get AI-powered tax-loss harvesting suggestions and Section 80C optimization."
               tag="Phase 3 — Coming Soon"
             />
+          </div>
+
+          {/* Score Trajectory */}
+          <div className="mt-6 bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+              <div>
+                <h3 className="font-semibold text-lg">90-Day Score Trajectory</h3>
+                <p className="text-sm text-gray-500 mt-0.5">See how your score could grow — and the top actions to get there faster.</p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {Object.entries(PERSONAS).map(([key, p]) => {
+                  const cls = COLOR_CLASSES[p.color]
+                  const isActive = activePersona === key
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => loadTrajectory(key)}
+                      className={`px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                        isActive ? cls.active : cls.btn
+                      } hover:opacity-90`}
+                    >
+                      <span className="font-semibold">{p.label}</span>
+                      <span className="ml-1 opacity-70">{p.sub}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {!activePersona && (
+              <div className="flex items-center justify-center h-40 text-gray-600 text-sm">
+                Select a persona above to see their score trajectory
+              </div>
+            )}
+
+            {trajLoading && (
+              <div className="flex items-center justify-center h-40">
+                <svg className="animate-spin h-6 w-6 text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+              </div>
+            )}
+
+            {trajectory && !trajLoading && (
+              <TrajectoryChart data={trajectory} />
+            )}
           </div>
 
           {/* Zerodha / Upstox integration teaser */}

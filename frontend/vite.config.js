@@ -8,6 +8,9 @@ export default defineConfig({
     proxy: {
       '/predict': 'http://localhost:8000',
       '/recommend': 'http://localhost:8000',
+      '/trajectory': 'http://localhost:8000',
+      '/score': 'http://localhost:8000',
+      '/optimize': 'http://localhost:8000',
     }
   }
 })
