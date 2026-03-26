@@ -274,11 +274,20 @@ def project_trajectory(current_features: dict, months: int = 3) -> dict:
 
     current_score = _score_features(model, base)
 
-    baseline_scores  = [_score_features(model, _apply_baseline(base,  m)) for m in range(1, months + 1)]
-    optimistic_scores = [_score_features(model, _apply_optimistic(base, m)) for m in range(1, months + 1)]
+    baseline_scores   = [_score_features(model, _apply_baseline(base, m))           for m in range(1, months + 1)]
+    optimistic_scores = [_score_features(model, _apply_optimistic_n(base, m, months)) for m in range(1, months + 1)]
 
     action_plan = _build_action_plan(model, base, current_score)
     max_gain    = optimistic_scores[-1] - current_score
+
+    # Milestone detection on optimistic path (first crossing only)
+    month_milestones = []
+    crossed = set()
+    for m_idx, opt_score in enumerate(optimistic_scores):
+        for threshold, label in _MILESTONES:
+            if threshold not in crossed and opt_score >= threshold and current_score < threshold:
+                crossed.add(threshold)
+                month_milestones.append({"month": m_idx + 1, "score": threshold, "milestone": label})
 
     return {
         "current_score":     current_score,
@@ -287,6 +296,7 @@ def project_trajectory(current_features: dict, months: int = 3) -> dict:
         "months":            list(range(1, months + 1)),
         "action_plan":       action_plan,
         "max_gain":          max_gain,
+        "month_milestones":  month_milestones,
     }
 
 

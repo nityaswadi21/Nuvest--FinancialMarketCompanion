@@ -3,6 +3,33 @@ import { useNavigate } from 'react-router-dom'
 import ScoreCard from '../components/ScoreCard'
 import ShapChart from '../components/ShapChart'
 
+// Map 6 form fields → 11 trajectory model features
+function deriveFeatures(form) {
+  const txn     = Number(form.upi_transactions_per_month) || 0
+  const onTime  = Number(form.bill_payment_on_time_pct)   || 0
+  const income  = Number(form.monthly_income_estimate)    || 1
+  const recharge = Number(form.mobile_recharge_frequency) || 0  // 0=rarely,1=monthly,2=weekly+
+  const emp     = Number(form.employment_type)            || 0  // 0=unemployed,1=freelance,2=salaried
+  const rent    = Number(form.rent_payments_regular)      || 0
+
+  const rechargeCount = [1, 3, 6][recharge] ?? 1
+  const avgAmount     = income / Math.max(txn, 1)
+
+  return {
+    avg_txn_freq:       txn,
+    txn_freq_trend:     0.0,
+    consistency_score:  onTime * 0.25,
+    recency_score:      0.5 + emp * 0.25,
+    category_diversity: Math.min(txn / 5, 10),
+    avg_amount:         avgAmount,
+    amount_volatility:  avgAmount * 0.3,
+    fail_ratio:         Math.max(0.01, (1 - onTime) * 0.35),
+    utility_streak:     Math.min(1.0, rent * 0.5 + rechargeCount / 8),
+    total_volume:       income,
+    recharge_count:     rechargeCount,
+  }
+}
+
 const EMPLOYMENT_OPTS = [
   { value: 0, label: 'Unemployed' },
   { value: 1, label: 'Freelance' },
@@ -110,9 +137,11 @@ export default function Demo() {
       })
       if (!res.ok) throw new Error(`Server error: ${res.status}`)
       const data = await res.json()
+      const derived = deriveFeatures(form)
       setResult(data)
       localStorage.setItem('nuvest_last_result', JSON.stringify(data))
       localStorage.setItem('nuvest_last_form', JSON.stringify(form))
+      localStorage.setItem('nuvest_trajectory', JSON.stringify({ score: data.score, features: derived }))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -299,9 +328,33 @@ export default function Demo() {
               <div style={{ borderTop: '1px solid #F3F4F6', marginTop: 28, paddingTop: 28 }}>
                 <ShapChart factors={result.shap_factors} />
               </div>
+
+              {/* Trajectory CTA */}
+              <div style={{ marginTop: 24, padding: '16px', background: '#f0f7f4', borderRadius: 12, border: '1px solid #c6e4d8' }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#1a5c45', margin: '0 0 4px' }}>
+                  Want to improve your score?
+                </p>
+                <p style={{ fontSize: 12, color: '#555', margin: '0 0 12px', lineHeight: 1.5 }}>
+                  See your personalised month-by-month improvement plan, score projections, and AI recommendations.
+                </p>
+                <button
+                  onClick={() => navigate('/trajectory')}
+                  style={{
+                    width: '100%', padding: '12px', background: '#1a5c45', color: '#fff',
+                    border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'Inter, sans-serif',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = '#2d7a5e'}
+                  onMouseOut={e => e.currentTarget.style.background = '#1a5c45'}
+                >
+                  View Score Trajectory →
+                </button>
+              </div>
+
               <button
                 onClick={() => navigate('/dashboard')}
-                style={{ marginTop: 24, width: '100%', padding: '12px', background: '#F9FAFB', border: '1.5px solid #E5E7EB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#0A0A0A', cursor: 'pointer', fontFamily: 'Inter, sans-serif', transition: 'background 0.15s' }}
+                style={{ marginTop: 12, width: '100%', padding: '11px', background: '#F9FAFB', border: '1.5px solid #E5E7EB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#0A0A0A', cursor: 'pointer', fontFamily: 'Inter, sans-serif', transition: 'background 0.15s' }}
                 onMouseOver={e => e.currentTarget.style.background = '#F3F4F6'}
                 onMouseOut={e => e.currentTarget.style.background = '#F9FAFB'}
               >

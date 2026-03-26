@@ -3,6 +3,7 @@ import Landing from './pages/Landing'
 import Demo from './pages/Demo'
 import Dashboard from './pages/Dashboard'
 import Portfolio from './pages/Portfolio'
+import TrajectoryPage from './pages/TrajectoryPage'
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
         <Route path="/demo" element={<Demo />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/trajectory" element={<TrajectoryPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
