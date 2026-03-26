@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import ScoreCard from '../components/ScoreCard'
+import ShapChart from '../components/ShapChart'
 
+// ---------------------------------------------------------------------------
+// Option constants
+// ---------------------------------------------------------------------------
 const EMPLOYMENT_OPTS = [
   { value: 0, label: 'Unemployed' },
   { value: 1, label: 'Freelance' },
@@ -11,14 +16,18 @@ const RECHARGE_OPTS = [
   { value: 1, label: 'Monthly' },
   { value: 2, label: 'Weekly+' },
 ]
+const RENT_OPTS = [
+  { value: 0, label: 'Irregular / No rent' },
+  { value: 1, label: 'Consistent & regular' },
+]
 
-const defaultForm = {
-  upi_transactions_per_month: 45,
-  bill_payment_on_time_pct: 0.88,
-  rent_payments_regular: 1,
-  monthly_income_estimate: 35000,
-  mobile_recharge_frequency: 1,
-  employment_type: 2,
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function addMonths(isoDate, months) {
+  const d = new Date(isoDate + 'T00:00:00')
+  d.setMonth(d.getMonth() + months)
+  return d.toISOString().slice(0, 10)
 }
 
 function fmtDate(iso) {
@@ -32,8 +41,16 @@ function tierColor(score) {
   if (score >= 750) return '#1D9E75'
   if (score >= 650) return '#378ADD'
   if (score >= 550) return '#BA7517'
-  if (score >= 450) return '#E24B4A'
   return '#E24B4A'
+}
+
+function incomeBracketLabel(income) {
+  if (!income || income <= 0) return null
+  if (income < 10000) return '< ₹10,000 bracket'
+  if (income < 25000) return '₹10,000 – ₹25,000 bracket'
+  if (income < 50000) return '₹25,000 – ₹50,000 bracket'
+  if (income < 100000) return '₹50,000 – ₹1,00,000 bracket'
+  return '> ₹1,00,000 bracket'
 }
 
 const today = new Date().toISOString().slice(0, 10)
@@ -41,33 +58,32 @@ const minDate = addMonths(today, 1)
 const maxDate = addMonths(today, 24)
 
 // ---------------------------------------------------------------------------
-// Feature derivation — 6 user inputs → 11 model features
+// Feature derivation — 6 user inputs → 11 trajectory model features
 // ---------------------------------------------------------------------------
 function deriveFeatures({ upiCount, billPct, rentRegularity, income, rechargeFreq, employmentType }) {
-  const avg_txn_freq      = upiCount
-  const fail_ratio        = parseFloat((1 - billPct / 100).toFixed(2))
+  const avg_txn_freq = Number(upiCount)
+  // billPct is 0-100
+  const fail_ratio = parseFloat((1 - billPct / 100).toFixed(2))
   const consistency_score = parseFloat((billPct / 400).toFixed(3))
-  const utility_streak    = parseFloat((billPct / 100).toFixed(2))
+  const utility_streak = parseFloat((billPct / 100).toFixed(2))
 
-  const recency_score  = rentRegularity === 'Consistent & regular' ? 1.0 : 0.5
-  const txn_freq_trend = rentRegularity === 'Consistent & regular' ? 2 : -1
+  // rentRegularity: 0 = irregular, 1 = consistent
+  const recency_score = rentRegularity === 1 ? 1.0 : 0.5
+  const txn_freq_trend = rentRegularity === 1 ? 2 : -1
 
   let avg_amount, amount_volatility, total_volume
-  if      (income < 10000)  { avg_amount = 180;  amount_volatility = 120; total_volume = 3500  }
-  else if (income < 25000)  { avg_amount = 420;  amount_volatility = 280; total_volume = 9000  }
-  else if (income < 50000)  { avg_amount = 750;  amount_volatility = 380; total_volume = 22000 }
-  else if (income < 100000) { avg_amount = 1400; amount_volatility = 600; total_volume = 45000 }
-  else                      { avg_amount = 2800; amount_volatility = 900; total_volume = 95000 }
+  const inc = Number(income)
+  if (inc < 10000)       { avg_amount = 180;  amount_volatility = 120; total_volume = 3500  }
+  else if (inc < 25000)  { avg_amount = 420;  amount_volatility = 280; total_volume = 9000  }
+  else if (inc < 50000)  { avg_amount = 750;  amount_volatility = 380; total_volume = 22000 }
+  else if (inc < 100000) { avg_amount = 1400; amount_volatility = 600; total_volume = 45000 }
+  else                   { avg_amount = 2800; amount_volatility = 900; total_volume = 95000 }
 
-  let recharge_count
-  if      (rechargeFreq === 'Rarely (prepaid, infrequent)') recharge_count = 1
-  else if (rechargeFreq === 'Monthly')                      recharge_count = 5
-  else                                                      recharge_count = 10
+  // rechargeFreq: 0=Rarely, 1=Monthly, 2=Weekly+
+  const recharge_count = rechargeFreq === 0 ? 1 : rechargeFreq === 1 ? 5 : 10
 
-  let category_diversity
-  if      (employmentType === 'Unemployed')              category_diversity = 2
-  else if (employmentType === 'Self-employed / Freelance') category_diversity = 5
-  else                                                   category_diversity = 7
+  // employmentType: 0=Unemployed, 1=Freelance, 2=Salaried
+  const category_diversity = employmentType === 0 ? 2 : employmentType === 1 ? 5 : 7
 
   return {
     avg_txn_freq, txn_freq_trend, consistency_score, recency_score,
@@ -76,19 +92,10 @@ function deriveFeatures({ upiCount, billPct, rentRegularity, income, rechargeFre
   }
 }
 
-function incomeBracketLabel(income) {
-  if (!income || income <= 0) return null
-  if (income < 10000)  return '< ₹10,000 bracket'
-  if (income < 25000)  return '₹10,000 – ₹25,000 bracket'
-  if (income < 50000)  return '₹25,000 – ₹50,000 bracket'
-  if (income < 100000) return '₹50,000 – ₹1,00,000 bracket'
-  return '> ₹1,00,000 bracket'
-}
-
 // ---------------------------------------------------------------------------
-// Segmented control
+// InputField wrapper
 // ---------------------------------------------------------------------------
-function SegControl({ options, value, onChange }) {
+function InputField({ label, hint, children }) {
   return (
     <div>
       <label className="block text-sm font-medium text-[#0A0A0A] mb-1.5">{label}</label>
@@ -101,8 +108,11 @@ function SegControl({ options, value, onChange }) {
 const inputClass =
   'w-full px-4 py-3 bg-white border border-[#D5D0C8] rounded-xl text-[#0A0A0A] placeholder-[#A39E98] focus:outline-none focus:border-[#1A6B5A] focus:ring-1 focus:ring-[#1A6B5A] transition-colors text-sm'
 
+const btnActiveClass = 'bg-[#1A6B5A]/10 border-[#1A6B5A] text-[#1A6B5A]'
+const btnInactiveClass = 'bg-white border-[#D5D0C8] text-[#6B6560] hover:border-[#A39E98]'
+
 // ---------------------------------------------------------------------------
-// Plan chart (SVG)
+// Plan chart (SVG) — uses optimize_to_target response
 // ---------------------------------------------------------------------------
 function PlanChart({ plan }) {
   const W = 560, H = 220
@@ -120,7 +130,7 @@ function PlanChart({ plan }) {
 
   const basePts = [{ x: toX(0), y: toY(current_score) },
     ...months_list.map((m, i) => ({ x: toX(m), y: toY(baseline_scores[i]) }))]
-  const optPts  = [{ x: toX(0), y: toY(current_score) },
+  const optPts = [{ x: toX(0), y: toY(current_score) },
     ...months_list.map((m, i) => ({ x: toX(m), y: toY(optimistic_scores[i]) }))]
 
   const yTicks = [300, 450, 600, 750, 900]
@@ -167,10 +177,11 @@ function PlanChart({ plan }) {
         {optPts.map((p, i) => {
           const isLR = lrCross && i > 0 && months_list[i - 1] === lrCross.month_number
           const isTarget = i === months_available
+          const finalScore = optimistic_scores[months_available - 1]
           return (
             <circle key={i} cx={p.x} cy={p.y}
               r={isLR || isTarget ? 6 : 3.5}
-              fill={isLR ? '#1D9E75' : isTarget && optimistic_scores[months_available - 1] >= 750 ? '#1D9E75' : isTarget ? '#BA7517' : '#1D9E75'}
+              fill={isLR ? '#1D9E75' : isTarget && finalScore >= 750 ? '#1D9E75' : isTarget ? '#BA7517' : '#1D9E75'}
               stroke="#0f1117" strokeWidth={2} />
           )
         })}
@@ -215,48 +226,45 @@ function PlanChart({ plan }) {
 export default function Demo() {
   const navigate = useNavigate()
 
-  // 6 plain-language inputs
   const [inputs, setInputs] = useState({
-    upiCount:       10,
-    billPct:        50,
-    rentRegularity: '',
-    income:         '',
-    rechargeFreq:   '',
-    employmentType: '',
+    upiCount: 10,
+    billPct: 50,
+    rentRegularity: '',   // '' | 0 | 1
+    income: '',
+    rechargeFreq: '',     // '' | 0 | 1 | 2
+    employmentType: '',   // '' | 0 | 1 | 2
   })
+  const setInput = (k, v) => setInputs(prev => ({ ...prev, [k]: v }))
 
   const [showTech, setShowTech] = useState(false)
-
-  const [result, setResult]         = useState(null)
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState(null)
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const [targetDate, setTargetDate] = useState('')
-  const [suggest, setSuggest]       = useState(null)
+  const [suggest, setSuggest] = useState(null)
 
-  const [plan, setPlan]             = useState(null)
+  const [plan, setPlan] = useState(null)
   const [planLoading, setPlanLoading] = useState(false)
-  const [planError, setPlanError]   = useState(null)
+  const [planError, setPlanError] = useState(null)
 
-  const [applied, setApplied]       = useState(false)
+  const [applied, setApplied] = useState(false)
 
   const planRef = useRef(null)
   const dateRef = useRef(null)
 
-  const setInput = (k, v) => setInputs(prev => ({ ...prev, [k]: v }))
-
-  // Derived features (computed live from inputs)
   const incomeNum = parseInt(inputs.income) || 0
+
+  // Derived 11 features (live preview for tech panel)
   const derived = deriveFeatures({
-    upiCount:       inputs.upiCount,
-    billPct:        inputs.billPct,
-    rentRegularity: inputs.rentRegularity || 'Irregular / No rent',
-    income:         incomeNum,
-    rechargeFreq:   inputs.rechargeFreq || 'Monthly',
-    employmentType: inputs.employmentType || 'Salaried',
+    upiCount: inputs.upiCount,
+    billPct: inputs.billPct,
+    rentRegularity: inputs.rentRegularity === '' ? 0 : inputs.rentRegularity,
+    income: incomeNum,
+    rechargeFreq: inputs.rechargeFreq === '' ? 1 : inputs.rechargeFreq,
+    employmentType: inputs.employmentType === '' ? 2 : inputs.employmentType,
   })
 
-  // Button enabled when all 6 are filled
   const isFormValid = (
     inputs.upiCount > 0 &&
     inputs.rentRegularity !== '' &&
@@ -265,7 +273,7 @@ export default function Demo() {
     inputs.employmentType !== ''
   )
 
-  // ---- auto-suggest date when score arrives --------------------------------
+  // Auto-suggest target date when score arrives
   useEffect(() => {
     if (!result?.score) return
     fetch(`/optimize/suggest?current_score=${result.score}`)
@@ -274,15 +282,15 @@ export default function Demo() {
         setSuggest(d)
         if (d.suggested_date && d.suggested_months > 0) setTargetDate(d.suggested_date)
       })
-      .catch(() => {})
+      .catch(() => { })
   }, [result?.score])
 
-  // ---- scroll to plan when it loads ----------------------------------------
+  // Scroll to plan when it loads
   useEffect(() => {
     if (plan) setTimeout(() => planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
   }, [plan])
 
-  // ---- POST /score ---------------------------------------------------------
+  // POST /score (optimize router — 11 features)
   const submit = async e => {
     e.preventDefault()
     setLoading(true)
@@ -292,11 +300,11 @@ export default function Demo() {
     setApplied(false)
     try {
       const features = deriveFeatures({
-        upiCount:       inputs.upiCount,
-        billPct:        inputs.billPct,
+        upiCount: inputs.upiCount,
+        billPct: inputs.billPct,
         rentRegularity: inputs.rentRegularity,
-        income:         incomeNum,
-        rechargeFreq:   inputs.rechargeFreq,
+        income: incomeNum,
+        rechargeFreq: inputs.rechargeFreq,
         employmentType: inputs.employmentType,
       })
       const res = await fetch('/score', {
@@ -314,18 +322,18 @@ export default function Demo() {
     }
   }
 
-  // ---- POST /optimize ------------------------------------------------------
+  // POST /optimize?target_date=...
   const getPlan = async () => {
     if (!targetDate) return
     setPlanLoading(true)
     setPlanError(null)
     try {
       const features = deriveFeatures({
-        upiCount:       inputs.upiCount,
-        billPct:        inputs.billPct,
+        upiCount: inputs.upiCount,
+        billPct: inputs.billPct,
         rentRegularity: inputs.rentRegularity,
-        income:         incomeNum,
-        rechargeFreq:   inputs.rechargeFreq,
+        income: incomeNum,
+        rechargeFreq: inputs.rechargeFreq,
         employmentType: inputs.employmentType,
       })
       const res = await fetch(`/optimize?target_date=${targetDate}`, {
@@ -345,15 +353,15 @@ export default function Demo() {
     }
   }
 
-  // ---- Apply recommendations -----------------------------------------------
+  // Re-score after applying recommendations
   const applyRecs = async () => {
     if (!plan?.recommendations) return
     const base = deriveFeatures({
-      upiCount:       inputs.upiCount,
-      billPct:        inputs.billPct,
+      upiCount: inputs.upiCount,
+      billPct: inputs.billPct,
       rentRegularity: inputs.rentRegularity,
-      income:         incomeNum,
-      rechargeFreq:   inputs.rechargeFreq,
+      income: incomeNum,
+      rechargeFreq: inputs.rechargeFreq,
       employmentType: inputs.employmentType,
     })
     const newFeatures = { ...base }
@@ -366,10 +374,9 @@ export default function Demo() {
         body: JSON.stringify(newFeatures),
       })
       if (res.ok) setResult(await res.json())
-    } catch {}
+    } catch { }
   }
 
-  // ---- Quick chip date -------------------------------------------------------
   const chipMonths = [1, 3, 6, 9, 12]
 
   const FEAS_COLOR = pct => pct >= 75 ? '#1D9E75' : pct >= 50 ? '#BA7517' : '#E24B4A'
@@ -379,7 +386,6 @@ export default function Demo() {
   const URGENCY_BG     = u => u === 'now' ? '#E24B4A18' : u === 'soon' ? '#BA751718' : '#1D9E7518'
   const URGENCY_BORDER = u => u === 'now' ? '#E24B4A40' : u === 'soon' ? '#BA751740' : '#1D9E7540'
 
-  // ---- Tech detail chip formatter -------------------------------------------
   const fmtDerived = (key, val) => {
     const currencyKeys = ['avg_amount', 'amount_volatility', 'total_volume']
     if (currencyKeys.includes(key)) return `₹${Number(val).toLocaleString('en-IN')}`
@@ -388,11 +394,11 @@ export default function Demo() {
   }
 
   const techFields = [
-    ['avg_txn_freq', 'avg_txn_freq'],      ['fail_ratio', 'fail_ratio'],
-    ['consistency_score', 'consistency'],  ['utility_streak', 'utility_streak'],
-    ['recency_score', 'recency_score'],    ['txn_freq_trend', 'txn_freq_trend'],
-    ['category_diversity', 'category_div'],['avg_amount', 'avg_amount'],
-    ['amount_volatility', 'volatility'],   ['total_volume', 'total_volume'],
+    ['avg_txn_freq', 'avg_txn_freq'], ['fail_ratio', 'fail_ratio'],
+    ['consistency_score', 'consistency'], ['utility_streak', 'utility_streak'],
+    ['recency_score', 'recency_score'], ['txn_freq_trend', 'txn_freq_trend'],
+    ['category_diversity', 'category_div'], ['avg_amount', 'avg_amount'],
+    ['amount_volatility', 'volatility'], ['total_volume', 'total_volume'],
     ['recharge_count', 'recharge_count'],
   ]
 
@@ -429,7 +435,7 @@ export default function Demo() {
             </p>
           </div>
 
-          {/* ── Step A: form + result ─────────────────────────────────────── */}
+          {/* Step A: form + result */}
           <div className="grid lg:grid-cols-2 gap-8 items-start">
 
             {/* Form */}
@@ -439,47 +445,38 @@ export default function Demo() {
                 <InputField label="UPI Transactions per Month" hint="How many digital payments do you make via UPI?">
                   <input
                     type="number" min={0} max={200}
-                    value={form.upi_transactions_per_month}
-                    onChange={(e) => set('upi_transactions_per_month', e.target.value)}
+                    value={inputs.upiCount}
+                    onChange={e => setInput('upiCount', Number(e.target.value))}
                     className={inputClass}
+                    placeholder="e.g. 20"
                   />
                 </InputField>
 
-                <InputField label="Bill Payment On-Time" hint="What fraction of utility bills do you pay on time?">
+                <InputField label="Bill Payment On-Time" hint="What percentage of utility bills do you pay on time?">
                   <div className="space-y-2">
                     <input
-                      type="range" min={0} max={1} step={0.01}
-                      value={form.bill_payment_on_time_pct}
-                      onChange={(e) => set('bill_payment_on_time_pct', parseFloat(e.target.value))}
+                      type="range" min={0} max={100} step={1}
+                      value={inputs.billPct}
+                      onChange={e => setInput('billPct', Number(e.target.value))}
                       className="w-full accent-[#1A6B5A]"
                     />
                     <div className="flex justify-between text-xs text-[#A39E98]">
                       <span>0% — Never</span>
-                      <span className="text-[#1A6B5A] font-semibold">{Math.round(form.bill_payment_on_time_pct * 100)}%</span>
+                      <span className="text-[#1A6B5A] font-semibold">{inputs.billPct}%</span>
                       <span>100% — Always</span>
                     </div>
                   </div>
-                  {incomeBracketLabel(incomeNum) && (
-                    <span className="inline-block mt-2 text-xs px-2.5 py-1 rounded-full"
-                      style={{ background: '#2a2d3a', color: '#888' }}>
-                      {incomeBracketLabel(incomeNum)}
-                    </span>
-                  )}
-                </div>
+                </InputField>
 
                 <InputField label="Rent Payment Regularity">
                   <div className="grid grid-cols-2 gap-3">
-                    {[{ v: 0, l: 'Irregular / No rent' }, { v: 1, l: 'Consistent & regular' }].map(({ v, l }) => (
+                    {RENT_OPTS.map(({ value, label }) => (
                       <button
-                        type="button" key={v}
-                        onClick={() => set('rent_payments_regular', v)}
-                        className={`px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
-                          form.rent_payments_regular === v
-                            ? 'bg-[#1A6B5A]/10 border-[#1A6B5A] text-[#1A6B5A]'
-                            : 'bg-white border-[#D5D0C8] text-[#6B6560] hover:border-[#A39E98]'
-                        }`}
+                        type="button" key={value}
+                        onClick={() => setInput('rentRegularity', value)}
+                        className={`px-4 py-3 rounded-xl border text-sm font-medium transition-all ${inputs.rentRegularity === value ? btnActiveClass : btnInactiveClass}`}
                       >
-                        {l}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -488,24 +485,26 @@ export default function Demo() {
                 <InputField label="Monthly Income Estimate (₹)" hint="Approximate monthly take-home income">
                   <input
                     type="number" min={0} step={1000}
-                    value={form.monthly_income_estimate}
-                    onChange={(e) => set('monthly_income_estimate', e.target.value)}
+                    value={inputs.income}
+                    onChange={e => setInput('income', e.target.value)}
                     className={inputClass}
                     placeholder="e.g. 35000"
                   />
-                </div>
+                  {incomeBracketLabel(incomeNum) && (
+                    <span className="inline-block mt-2 text-xs px-2.5 py-1 rounded-full"
+                      style={{ background: '#2a2d3a', color: '#888' }}>
+                      {incomeBracketLabel(incomeNum)}
+                    </span>
+                  )}
+                </InputField>
 
                 <InputField label="Mobile Recharge Frequency">
                   <div className="grid grid-cols-3 gap-2">
                     {RECHARGE_OPTS.map(({ value, label }) => (
                       <button
                         type="button" key={value}
-                        onClick={() => set('mobile_recharge_frequency', value)}
-                        className={`px-3 py-3 rounded-xl border text-xs font-medium transition-all ${
-                          form.mobile_recharge_frequency === value
-                            ? 'bg-[#1A6B5A]/10 border-[#1A6B5A] text-[#1A6B5A]'
-                            : 'bg-white border-[#D5D0C8] text-[#6B6560] hover:border-[#A39E98]'
-                        }`}
+                        onClick={() => setInput('rechargeFreq', value)}
+                        className={`px-3 py-3 rounded-xl border text-xs font-medium transition-all ${inputs.rechargeFreq === value ? btnActiveClass : btnInactiveClass}`}
                       >
                         {label}
                       </button>
@@ -518,12 +517,8 @@ export default function Demo() {
                     {EMPLOYMENT_OPTS.map(({ value, label }) => (
                       <button
                         type="button" key={value}
-                        onClick={() => set('employment_type', value)}
-                        className={`px-3 py-3 rounded-xl border text-xs font-medium transition-all ${
-                          form.employment_type === value
-                            ? 'bg-[#1A6B5A]/10 border-[#1A6B5A] text-[#1A6B5A]'
-                            : 'bg-white border-[#D5D0C8] text-[#6B6560] hover:border-[#A39E98]'
-                        }`}
+                        onClick={() => setInput('employmentType', value)}
+                        className={`px-3 py-3 rounded-xl border text-xs font-medium transition-all ${inputs.employmentType === value ? btnActiveClass : btnInactiveClass}`}
                       >
                         {label}
                       </button>
@@ -531,16 +526,35 @@ export default function Demo() {
                   </div>
                 </InputField>
 
+                {/* Tech detail toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowTech(v => !v)}
+                  className="text-xs text-[#A39E98] hover:text-[#6B6560] transition-colors flex items-center gap-1"
+                >
+                  <span>{showTech ? '▾' : '▸'}</span> Show derived ML features
+                </button>
+
+                {showTech && (
+                  <div className="p-4 rounded-xl bg-[#F5F0E8] border border-[#E8E4DC] flex flex-wrap gap-2">
+                    {techFields.map(([key, shortKey]) => (
+                      <span key={key} className="text-xs px-2.5 py-1 rounded-full bg-white border border-[#D5D0C8] text-[#6B6560] font-mono">
+                        {shortKey}: {fmtDerived(key, derived[key])}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !isFormValid}
                   className="w-full py-4 bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed rounded-xl font-semibold text-white text-sm transition-all shadow-sm hover:shadow-md"
                 >
                   {loading ? (
                     <span className="flex items-center justify-center gap-3">
                       <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                       </svg>
                       Calculating score…
                     </span>
@@ -560,9 +574,11 @@ export default function Demo() {
               {result ? (
                 <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 space-y-8 shadow-sm animate-fade-up">
                   <ScoreCard score={result.score} riskTier={result.risk_tier} />
-                  <div className="border-t border-[#E8E4DC] pt-8">
-                    <ShapChart factors={result.shap_factors} />
-                  </div>
+                  {result.shap_factors?.length > 0 && (
+                    <div className="border-t border-[#E8E4DC] pt-8">
+                      <ShapChart factors={result.shap_factors} />
+                    </div>
+                  )}
                   <button
                     onClick={() => navigate('/dashboard')}
                     className="w-full py-3 bg-[#F5F0E8] hover:bg-[#EDE8DF] rounded-xl text-sm font-medium text-[#0A0A0A] transition-colors border border-[#E8E4DC]"
@@ -575,12 +591,225 @@ export default function Demo() {
                   <div className="w-20 h-20 rounded-full bg-[#F5F0E8] flex items-center justify-center text-4xl">📊</div>
                   <h3 className="text-xl font-semibold text-[#0A0A0A]">Your score will appear here</h3>
                   <p className="text-[#A39E98] text-sm max-w-xs leading-relaxed">
-                    Fill in the form on the left and hit "Calculate" to see your AI-generated credit score with SHAP explanations.
+                    Fill in the form on the left and hit "Calculate" to see your AI-generated credit score with explanations.
                   </p>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Step B: Target date + optimization plan */}
+          {result && (
+            <div ref={dateRef} className="mt-16">
+              <div className="text-center mb-8">
+                <h2 className="font-serif text-3xl font-bold text-[#0A0A0A] mb-2">Build your improvement plan</h2>
+                <p className="text-[#6B6560]">Pick a target date and we'll show you exactly what to do.</p>
+              </div>
+
+              <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm max-w-2xl mx-auto">
+                {/* Suggested date hint */}
+                {suggest?.message && suggest.suggested_months > 0 && (
+                  <div className="mb-6 p-4 rounded-xl bg-[#F5F0E8] border border-[#E8E4DC] text-sm text-[#6B6560]">
+                    💡 {suggest.message}
+                  </div>
+                )}
+                {suggest?.suggested_months === 0 && (
+                  <div className="mb-6 p-4 rounded-xl bg-[#1D9E7510] border border-[#1D9E7540] text-sm text-[#1D9E75]">
+                    🎉 {suggest.message}
+                  </div>
+                )}
+
+                {/* Quick chips */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {chipMonths.map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setTargetDate(addMonths(today, m))}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${targetDate === addMonths(today, m) ? btnActiveClass : btnInactiveClass}`}
+                    >
+                      +{m} month{m > 1 ? 's' : ''}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-3">
+                  <input
+                    type="date"
+                    min={minDate} max={maxDate}
+                    value={targetDate}
+                    onChange={e => setTargetDate(e.target.value)}
+                    className={inputClass + ' flex-1'}
+                  />
+                  <button
+                    onClick={getPlan}
+                    disabled={!targetDate || planLoading}
+                    className="px-6 py-3 bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed rounded-xl font-semibold text-white text-sm transition-all whitespace-nowrap"
+                  >
+                    {planLoading ? 'Planning…' : 'Get plan →'}
+                  </button>
+                </div>
+
+                {planError && (
+                  <div className="mt-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                    {planError}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step C: Optimization plan results */}
+          {plan && (
+            <div ref={planRef} className="mt-12 space-y-8">
+
+              {/* Feasibility header */}
+              <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h3 className="font-serif text-2xl font-bold text-[#0A0A0A]">
+                      Target: {fmtDate(plan.target_date)}
+                    </h3>
+                    <p className="text-[#6B6560] text-sm mt-1">
+                      {plan.months_available} month{plan.months_available !== 1 ? 's' : ''} · {plan.days_available} days
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-3xl font-bold tabular-nums" style={{ color: FEAS_COLOR(plan.feasibility_pct) }}>
+                      {plan.feasibility_pct}%
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: FEAS_COLOR(plan.feasibility_pct) }}>
+                      {FEAS_LABEL(plan.feasibility_pct)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Score range */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  {[
+                    { label: 'Current', score: plan.current_score },
+                    { label: 'Baseline', score: plan.baseline_score },
+                    { label: 'Optimistic', score: plan.optimistic_score },
+                  ].map(({ label, score }) => (
+                    <div key={label} className="text-center p-4 rounded-xl bg-[#F5F0E8] border border-[#E8E4DC]">
+                      <div className="text-xs text-[#A39E98] mb-1">{label}</div>
+                      <div className="text-2xl font-bold tabular-nums" style={{ color: tierColor(score) }}>{score}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {plan.realistic_date && plan.optimistic_score < 750 && (
+                  <div className="p-4 rounded-xl bg-[#BA751710] border border-[#BA751740] text-sm text-[#BA7517]">
+                    📅 Realistic Low Risk date: <strong>{fmtDate(plan.realistic_date)}</strong> ({plan.realistic_months} months)
+                  </div>
+                )}
+              </div>
+
+              {/* Trajectory chart */}
+              <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm">
+                <h3 className="font-serif text-xl font-bold text-[#0A0A0A] mb-6">Score trajectory</h3>
+                <PlanChart plan={plan} />
+              </div>
+
+              {/* Recommendations */}
+              {plan.recommendations?.length > 0 && (
+                <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-serif text-xl font-bold text-[#0A0A0A]">Your action plan</h3>
+                    <button
+                      onClick={applyRecs}
+                      disabled={applied}
+                      className="px-4 py-2 bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed rounded-lg text-xs font-semibold text-white transition-all"
+                    >
+                      {applied ? 'Applied ✓' : 'Preview score impact'}
+                    </button>
+                  </div>
+                  <div className="space-y-4">
+                    {plan.recommendations.map((r, i) => (
+                      <div key={r.feature} className="flex gap-4 p-4 rounded-xl border transition-all"
+                        style={{ borderColor: URGENCY_BORDER(r.urgency), background: URGENCY_BG(r.urgency) }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                          style={{ background: URGENCY_COLOR(r.urgency) }}>
+                          {i + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-[#0A0A0A]">{r.label}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-[#1D9E75]">+{r.gain} pts</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
+                                style={{ color: URGENCY_COLOR(r.urgency), background: URGENCY_BG(r.urgency), border: `1px solid ${URGENCY_BORDER(r.urgency)}` }}>
+                                {r.urgency}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-[#6B6560] mt-1">{r.description}</p>
+                          <div className="flex items-center gap-2 mt-2 text-xs text-[#A39E98]">
+                            <span>{r.current_display}</span>
+                            <span>→</span>
+                            <span className="text-[#1D9E75] font-medium">{r.target_display}</span>
+                            <span>· due {r.due_display}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Month-by-month timeline */}
+              {plan.timeline?.length > 1 && (
+                <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm">
+                  <h3 className="font-serif text-xl font-bold text-[#0A0A0A] mb-6">Month-by-month timeline</h3>
+                  <div className="space-y-3">
+                    {plan.timeline.slice(1).map(entry => (
+                      <div key={entry.month_number}
+                        className={`p-4 rounded-xl border ${entry.is_low_risk_crossing ? 'border-[#1D9E75] bg-[#1D9E7508]' : entry.is_target_month ? 'border-[#BA7517] bg-[#BA751708]' : 'border-[#E8E4DC]'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-[#A39E98]">Month {entry.month_number} · {entry.date_display}</span>
+                            {entry.is_low_risk_crossing && <span className="text-xs px-2 py-0.5 rounded-full bg-[#1D9E7520] text-[#1D9E75] font-medium">Low Risk ✓</span>}
+                            {entry.is_target_month && !entry.is_low_risk_crossing && <span className="text-xs px-2 py-0.5 rounded-full bg-[#BA751720] text-[#BA7517] font-medium">Target</span>}
+                          </div>
+                          <span className="text-sm font-bold tabular-nums" style={{ color: entry.tier_color }}>
+                            {entry.projected_score}
+                          </span>
+                        </div>
+                        <ul className="space-y-1">
+                          {entry.actions.map((act, i) => (
+                            <li key={i} className="text-xs text-[#6B6560] flex gap-2">
+                              <span className="text-[#1A6B5A] shrink-0">•</span>{act}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Milestones */}
+              {plan.milestones?.length > 0 && (
+                <div className="bg-white border border-[#E8E4DC] rounded-2xl p-8 shadow-sm">
+                  <h3 className="font-serif text-xl font-bold text-[#0A0A0A] mb-6">Milestones you'll unlock</h3>
+                  <div className="space-y-3">
+                    {plan.milestones.map(m => (
+                      <div key={m.score} className="flex items-center gap-4 p-4 rounded-xl bg-[#F5F0E8] border border-[#E8E4DC]">
+                        <div className="w-12 h-12 rounded-full bg-[#1A6B5A]/10 flex items-center justify-center text-sm font-bold text-[#1A6B5A] shrink-0">
+                          {m.score}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-[#0A0A0A]">{m.label}</div>
+                          <div className="text-xs text-[#A39E98] mt-0.5">Month {m.month} · {m.display}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
 
         </div>
       </div>

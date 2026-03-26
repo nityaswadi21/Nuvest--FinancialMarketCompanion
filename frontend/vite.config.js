@@ -6,9 +6,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/predict':   'http://localhost:8001',
-      '/recommend': 'http://localhost:8001',
-      '/portfolio': 'http://localhost:8001',
+      '/score':     'http://localhost:8000',
+      '/optimize':  'http://localhost:8000',
+      '/trajectory':'http://localhost:8000',
+      '/portfolio': 'http://localhost:8000',
+      '/predict':   'http://localhost:8000',
     }
   }
 })

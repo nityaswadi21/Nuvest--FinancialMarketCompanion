@@ -87,11 +87,17 @@ def score_features(body: FeatureInput):
 
     tips.sort(key=lambda x: x["gain"], reverse=True)
 
+    # Rename gain→impact so ShapChart can consume directly
+    shap_factors = [
+        {**t, "impact": t["gain"]}
+        for t in tips[:6]
+    ]
+
     return {
-        "score":      score,
-        "risk_tier":  tier,
-        "tier_color": tier_color,
-        "top_factors": tips[:3],
+        "score":        score,
+        "risk_tier":    tier,
+        "tier_color":   tier_color,
+        "shap_factors": shap_factors,
     }
 
 

@@ -1,6 +1,19 @@
 import { useEffect, useState } from 'react'
 
 const FEATURE_LABELS = {
+  // 11 trajectory-model features
+  avg_txn_freq:       'Transaction Frequency',
+  txn_freq_trend:     'Transaction Trend',
+  consistency_score:  'Payment Consistency',
+  recency_score:      'Account Activity',
+  category_diversity: 'Spending Diversity',
+  avg_amount:         'Avg Transaction Amount',
+  amount_volatility:  'Amount Volatility',
+  fail_ratio:         'Failed Payment Rate',
+  utility_streak:     'Utility Payment Streak',
+  total_volume:       'Total UPI Volume',
+  recharge_count:     'Mobile Recharges',
+  // legacy 6-feature labels (fallback)
   upi_transactions_per_month: 'UPI Transactions / Month',
   bill_payment_on_time_pct:   'Bill Payment On-Time %',
   rent_payments_regular:      'Rent Payment Regularity',
