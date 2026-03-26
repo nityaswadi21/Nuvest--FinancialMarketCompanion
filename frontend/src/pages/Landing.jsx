@@ -54,7 +54,7 @@ function DashboardMockup() {
       <div style={{ background: '#0a0a0a', borderBottom: '1px solid #1a1a1a', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 24, height: 24, borderRadius: 6, background: '#1A6B5A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff' }}>C</div>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>CreditAI</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Nuvest</span>
         </div>
         <div style={{ display: 'flex', gap: 16 }}>
           {['Portfolio', 'Score', 'Dashboard'].map(t => (
@@ -154,7 +154,7 @@ export default function Landing() {
       {/* ── Announcement bar ─────────────────────────────────────────────── */}
       {announcementVisible && (
         <div style={{ background: '#0A0A0A', color: '#fff', fontSize: 13, textAlign: 'center', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, position: 'relative' }}>
-          <span>CreditAI now supports Upstox portfolio sync</span>
+          <span>Nuvest now supports Upstox portfolio sync</span>
           <span style={{ color: '#1A6B5A', fontWeight: 600 }}>→</span>
           <button
             onClick={() => setAnnouncementVisible(false)}
@@ -177,7 +177,7 @@ export default function Landing() {
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'Playfair Display, Georgia, serif', fontWeight: 600, fontSize: 18, color: '#0A0A0A' }}>
           <div style={{ width: 28, height: 28, borderRadius: 7, background: '#1A6B5A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 12, color: '#fff' }}>C</div>
-          CreditAI
+          Nuvest
         </div>
 
         {/* Center links */}
@@ -237,7 +237,7 @@ export default function Landing() {
           </h1>
 
           <p style={{ fontSize: 18, color: '#6B7280', maxWidth: 520, margin: '0 auto 40px', lineHeight: 1.7, fontWeight: 400 }}>
-            190 million Indians lack formal credit history. CreditAI uses UPI transactions,
+            190 million Indians lack formal credit history. Nuvest uses UPI transactions,
             bill payments, and rent data to build an explainable credit score — in seconds.
           </p>
 
@@ -316,7 +316,7 @@ export default function Landing() {
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
             <h2 style={{ fontFamily: 'Playfair Display, Georgia, serif', fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 700, color: '#0A0A0A', marginBottom: 12, letterSpacing: '-0.02em' }}>
-              How CreditAI works
+              How Nuvest works
             </h2>
             <p style={{ fontSize: 16, color: '#6B7280' }}>From alternative data to an explainable score in 3 steps</p>
           </div>
@@ -358,7 +358,7 @@ export default function Landing() {
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid rgba(10,10,10,0.08)', padding: '24px', textAlign: 'center', fontSize: 13, color: '#9CA3AF' }}>
-        CreditAI — Built for the AI for Financial Inclusion Hackathon
+        Nuvest — Built for the AI for Financial Inclusion Hackathon
       </footer>
 
     </div>

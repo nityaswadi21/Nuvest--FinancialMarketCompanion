@@ -235,112 +235,92 @@ export default function Portfolio() {
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen bg-[#FAFAF8] text-[#0A0A0A]">
+    <div className="min-h-screen bg-[#FAFAF8] text-[#0A0A0A]">
 
-      {/* ── Dark sidebar ───────────────────────────────────────────────────────── */}
-      <aside className="fixed left-0 top-0 h-full w-16 bg-[#0A0A0A] flex flex-col items-center py-5 z-50 gap-1">
-        {/* Logo */}
-        <button
-          onClick={() => navigate('/')}
-          className="w-9 h-9 rounded-xl bg-[#1A6B5A] flex items-center justify-center font-bold text-sm text-white mb-6 hover:bg-[#155A4A] transition-colors"
-        >
-          N
-        </button>
+      {/* ── Top navbar ─────────────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-40 bg-[#FAFAF8]/90 backdrop-blur-md border-b border-[#E8E4DC]">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
 
-        {/* Nav icons */}
-        {[
-          { icon: <DashboardIcon />, label: 'Dashboard', path: '/dashboard' },
-          { icon: <PortfolioIcon />, label: 'Portfolio',  path: '/portfolio', active: true },
-          { icon: <ScoreIcon />,     label: 'Credit Score', path: '/demo' },
-        ].map(({ icon, label, path, active }) => (
-          <button
-            key={label}
-            onClick={() => navigate(path)}
-            title={label}
-            className={`group relative w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-              active ? 'bg-[#1A6B5A] text-white' : 'text-[#6B6560] hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            {icon}
-            <span className="pointer-events-none absolute left-14 px-2 py-1 rounded-lg bg-[#1A1A1A] text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
-              {label}
-            </span>
+          {/* Logo */}
+          <button onClick={() => navigate('/')} className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-[#1A6B5A] flex items-center justify-center font-bold text-xs text-white">N</div>
+            <span className="font-serif font-semibold text-lg text-[#0A0A0A]">Nuvest</span>
           </button>
-        ))}
 
-        <div className="flex-1" />
-
-        {/* Settings at bottom */}
-        <button
-          title="Settings"
-          className="group relative w-10 h-10 rounded-xl flex items-center justify-center text-[#6B6560] hover:bg-white/10 hover:text-white transition-colors"
-        >
-          <SettingsIcon />
-          <span className="pointer-events-none absolute left-14 px-2 py-1 rounded-lg bg-[#1A1A1A] text-white text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
-            Settings
-          </span>
-        </button>
-      </aside>
-
-      {/* ── Main content ───────────────────────────────────────────────────────── */}
-      <main className="flex-1 ml-16 min-h-screen">
-
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <div className="sticky top-0 z-40 bg-[#FAFAF8]/90 backdrop-blur-md border-b border-[#E8E4DC]">
-          <div className="max-w-7xl mx-auto px-8 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h1 className="font-serif text-xl font-bold text-[#0A0A0A]">Portfolio</h1>
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                isLive
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                  : 'bg-amber-50 border-amber-200 text-amber-700'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-400'}`} />
-                {isLive ? `Live · ${status.user_name}` : 'Mock Data'}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {isLive ? (
-                <button
-                  onClick={handleDisconnect}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-[#E8E4DC] text-sm font-medium text-[#6B6560] hover:border-red-200 hover:text-red-600 transition-colors shadow-sm"
-                >
-                  Disconnect Zerodha
-                </button>
-              ) : (
-                <button
-                  onClick={handleConnect}
-                  disabled={loadingConn}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
-                >
-                  {loadingConn ? <Spinner white /> : (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-                      <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-                    </svg>
-                  )}
-                  {loadingConn ? 'Connecting…' : 'Connect Zerodha'}
-                </button>
-              )}
-
+          {/* Nav tabs */}
+          <div className="hidden md:flex items-center gap-1">
+            {[
+              { label: 'Dashboard',    path: '/dashboard' },
+              { label: 'Portfolio',    path: '/portfolio', active: true },
+              { label: 'Credit Score', path: '/demo' },
+            ].map(({ label, path, active }) => (
               <button
-                onClick={runAnalysis}
-                disabled={loadingAI || loadingData}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0A0A0A] hover:bg-[#1f1f1f] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
+                key={label}
+                onClick={() => navigate(path)}
+                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  active
+                    ? 'bg-[#F0ECE4] text-[#0A0A0A] font-medium'
+                    : 'text-[#6B6560] hover:text-[#0A0A0A] hover:bg-[#F0ECE4]'
+                }`}
               >
-                {loadingAI ? <Spinner white /> : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Right: badge + actions */}
+          <div className="flex items-center gap-3">
+            <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+              isLive
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                : 'bg-amber-50 border-amber-200 text-amber-700'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+              {isLive ? `Live · ${status.user_name}` : 'Mock Data'}
+            </span>
+
+            {isLive ? (
+              <button
+                onClick={handleDisconnect}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-[#E8E4DC] text-sm font-medium text-[#6B6560] hover:border-red-200 hover:text-red-600 transition-colors shadow-sm"
+              >
+                Disconnect Zerodha
+              </button>
+            ) : (
+              <button
+                onClick={handleConnect}
+                disabled={loadingConn}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1A6B5A] hover:bg-[#155A4A] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
+              >
+                {loadingConn ? <Spinner white /> : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
                   </svg>
                 )}
-                {loadingAI ? 'Analysing…' : 'Run AI Analysis'}
+                {loadingConn ? 'Connecting…' : 'Connect Zerodha'}
               </button>
-            </div>
+            )}
+
+            <button
+              onClick={runAnalysis}
+              disabled={loadingAI || loadingData}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0A0A0A] hover:bg-[#1f1f1f] disabled:bg-[#D5D0C8] disabled:cursor-not-allowed text-sm font-medium text-white transition-colors shadow-sm"
+            >
+              {loadingAI ? <Spinner white /> : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                </svg>
+              )}
+              {loadingAI ? 'Analysing…' : 'Run AI Analysis'}
+            </button>
           </div>
         </div>
+      </nav>
 
-        <div className="max-w-7xl mx-auto px-8 py-8">
+      {/* ── Main content ───────────────────────────────────────────────────────── */}
+      <main className="min-h-screen">
+        <div className="max-w-6xl mx-auto px-6 py-8">
 
           {/* ── Connect banner ──────────────────────────────────────────────── */}
           {!isLive && (
